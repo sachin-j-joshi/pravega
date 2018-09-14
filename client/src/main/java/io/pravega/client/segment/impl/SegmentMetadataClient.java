@@ -48,10 +48,11 @@ public interface SegmentMetadataClient extends AutoCloseable {
     /**
      * Deletes all data before the offset of the provided segment.
      * This data will no longer be readable. Existing offsets are not affected by this operations. 
-     * The new startingOffset will be reflected in {@link SegmentMetadataClient#getSegmentInfo().startingOffset}.
+     * The new startingOffset will be reflected in {@link SegmentMetadataClient#getSegmentInfo(String).startingOffset}.
+     * @param segment The segment to truncate.
      * @param offset The offset the segment should be truncated at.
      */
-    abstract void truncateSegment(long offset);
+    abstract void truncateSegment(Segment segment, long offset);
     
     @Override
     abstract void close();
