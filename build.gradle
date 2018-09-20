@@ -109,6 +109,7 @@ def withoutLogger = { exclude group: 'org.slf4j', module: 'slf4j-log4j12'
 
 project('shared:authplugin') {
     dependencies {
+        compile group: 'org.apache.commons', name: 'commons-lang3', version: commonsLang3Version
     }
 
     javadoc {

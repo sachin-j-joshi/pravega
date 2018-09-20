@@ -55,7 +55,7 @@ public interface AuthHandler {
      * @throws AuthException Exception of type AuthException thrown if there is any error.
      */
     default Principal authenticate(String token) throws AuthException {
-        throw new NotImplementedException();
+        throw new NotImplementedException("");
     }
 
     /**
@@ -80,7 +80,7 @@ public interface AuthHandler {
      * @return The level of authorization.
      */
     default Permissions authorize(String resource, Principal principal) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("");
     }
 
     /**
