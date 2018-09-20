@@ -80,7 +80,7 @@ public interface AuthHandler {
      * @return The level of authorization.
      */
     default Permissions authorize(String resource, Principal principal) {
-        throw new NotImplementedException("");
+        throw new NotImplementedException("", "");
     }
 
     /**

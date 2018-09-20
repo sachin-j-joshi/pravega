@@ -32,7 +32,7 @@ public interface Credentials extends Serializable {
      * @return A token in token68-compatible format (as defined by RFC 7235).
      */
     default String getAuthenticationToken() {
-        throw new NotImplementedException("");
+        throw new NotImplementedException("", "");
     }
 
     /**
