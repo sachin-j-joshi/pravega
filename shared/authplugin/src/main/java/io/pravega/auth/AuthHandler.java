@@ -10,6 +10,8 @@
 package io.pravega.auth;
 
 import java.security.Principal;
+import java.util.Map;
+import org.apache.commons.lang3.NotImplementedException;
 
 /**
  * Custom authorization/authentication handlers implement this interface.
@@ -52,7 +54,20 @@ public interface AuthHandler {
      *
      * @throws AuthException Exception of type AuthException thrown if there is any error.
      */
-    Principal authenticate(String token) throws AuthException;
+    default Principal authenticate(String token) throws AuthException {
+        throw new NotImplementedException();
+    }
+
+    /**
+     * Authenticates a given request. Pravega controller passes the HTTP headers associated with the call.
+     * The custom implementation returns whether the user represented by these headers is authenticated.
+     *
+     * @param headers the key-value pairs passed through grpc.
+     * @return Returns true when the user is authenticated.
+     */
+    default boolean authenticate(Map<String, String> headers) {
+        throw new RuntimeException("Deprecated");
+    }
 
     /**
      * Authorizes the access to a given resource. Pravega controller passes the HTTP headers associated with the call.
@@ -64,7 +79,22 @@ public interface AuthHandler {
      *                  call to `authenticate` method.
      * @return The level of authorization.
      */
-    Permissions authorize(String resource, Principal principal);
+    default Permissions authorize(String resource, Principal principal) {
+        throw new NotImplementedException();
+    }
+
+    /**
+     * Authorizes the access to a given resource. Pravega controller passes the HTTP headers associated with the call.
+     * The implementations of this interface should return the maximum level of authorization possible for the user represented
+     * by the headers.
+     *
+     * @param resource the resource that needs to be accessed.
+     * @param headers the context for authorization.
+     * @return The level of authorization.
+     */
+    default Permissions authorize(String resource, Map<String, String> headers) {
+        throw new RuntimeException("Deprecated");
+    }
 
     /**
      * Sets the configuration. If the auth handler needs to access the server configuration, it can be accessed though this var.

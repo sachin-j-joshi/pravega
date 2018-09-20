@@ -10,6 +10,8 @@
 package io.pravega.client.stream.impl;
 
 import java.io.Serializable;
+import java.util.Map;
+import org.apache.commons.lang3.NotImplementedException;
 
 /**
  * This interface represents the credentials passed to Pravega for authentication and authorizing the access.
@@ -29,5 +31,15 @@ public interface Credentials extends Serializable {
      * Returns the authorization token to be sent to Pravega.
      * @return A token in token68-compatible format (as defined by RFC 7235).
      */
-    String getAuthenticationToken();
+    default String getAuthenticationToken() {
+        throw new NotImplementedException("");
+    }
+
+    /**
+     * Returns authorization parameters used by this specific authentication type.
+     * @return The map of authentication headers and values.
+     */
+    default Map<String, String> getAuthParameters() {
+        throw new RuntimeException("Deprecated");
+    }
 }
