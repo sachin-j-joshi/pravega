@@ -16,11 +16,11 @@ import io.pravega.common.io.FileHelpers;
 import io.pravega.segmentstore.contracts.SegmentProperties;
 import io.pravega.segmentstore.contracts.StreamSegmentNotExistsException;
 import io.pravega.segmentstore.contracts.StreamSegmentSealedException;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.SegmentHandle;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageNotPrimaryException;
 import io.pravega.segmentstore.storage.StorageTestBase;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.rolling.RollingStorageTestBase;
 import io.pravega.test.common.AssertExtensions;
 import java.io.ByteArrayInputStream;
@@ -214,7 +214,7 @@ public class HDFSStorageTest extends StorageTestBase {
 
     @Override
     protected Storage createStorage() {
-        return new AsyncStorageWrapper(new TestHDFSStorage(this.adapterConfig), executorService());
+        return new SyncStorageAdapter(new TestHDFSStorage(this.adapterConfig), executorService());
     }
 
     // region HDFS specific tests

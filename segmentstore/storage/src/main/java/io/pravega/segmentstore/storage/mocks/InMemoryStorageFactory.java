@@ -11,10 +11,10 @@ package io.pravega.segmentstore.storage.mocks;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageFactory;
 import io.pravega.segmentstore.storage.SyncStorage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.rolling.RollingStorage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
@@ -39,7 +39,7 @@ public class InMemoryStorageFactory implements StorageFactory, AutoCloseable {
 
     @Override
     public Storage createStorageAdapter() {
-        return new AsyncStorageWrapper(new RollingStorage(this.baseStorage), this.executor);
+        return new SyncStorageAdapter(new RollingStorage(this.baseStorage), this.executor);
     }
 
     @Override
@@ -60,7 +60,7 @@ public class InMemoryStorageFactory implements StorageFactory, AutoCloseable {
      */
     @VisibleForTesting
     public static Storage newStorage(Executor executor) {
-        return new AsyncStorageWrapper(new InMemoryStorage(), executor);
+        return new SyncStorageAdapter(new InMemoryStorage(), executor);
     }
 
     public void initialize() {

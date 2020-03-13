@@ -9,15 +9,16 @@
  */
 package io.pravega.segmentstore.storage.rolling;
 
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
-import io.pravega.segmentstore.storage.SegmentRollingPolicy;
-import io.pravega.segmentstore.storage.Storage;
-import io.pravega.segmentstore.storage.StorageTestBase;
-import io.pravega.segmentstore.storage.SyncStorage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.SequenceInputStream;
 import java.util.Random;
+
+import io.pravega.segmentstore.storage.SegmentRollingPolicy;
+import io.pravega.segmentstore.storage.Storage;
+import io.pravega.segmentstore.storage.StorageTestBase;
+import io.pravega.segmentstore.storage.SyncStorage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import lombok.Cleanup;
 import lombok.val;
 import org.junit.Assert;
@@ -175,7 +176,7 @@ public abstract class RollingStorageTestBase extends StorageTestBase {
     }
 
     protected Storage wrap(SyncStorage storage) {
-        return new AsyncStorageWrapper(new RollingStorage(storage, new SegmentRollingPolicy(DEFAULT_ROLLING_SIZE)), executorService());
+        return new SyncStorageAdapter(new RollingStorage(storage, new SegmentRollingPolicy(DEFAULT_ROLLING_SIZE)), executorService());
     }
 
     protected long getSegmentRollingSize() {

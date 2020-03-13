@@ -10,10 +10,10 @@
 package io.pravega.storage.filesystem;
 
 import com.google.common.base.Preconditions;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageFactory;
 import io.pravega.segmentstore.storage.SyncStorage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.rolling.RollingStorage;
 import java.util.concurrent.ExecutorService;
 
@@ -40,7 +40,7 @@ public class FileSystemStorageFactory implements StorageFactory {
     @Override
     public Storage createStorageAdapter() {
         FileSystemStorage s = new FileSystemStorage(this.config);
-        return new AsyncStorageWrapper(new RollingStorage(s), this.executor);
+        return new SyncStorageAdapter(new RollingStorage(s), this.executor);
     }
 
     @Override

@@ -11,10 +11,10 @@ package io.pravega.storage.extendeds3;
 
 import com.emc.object.s3.jersey.S3JerseyClient;
 import com.google.common.base.Preconditions;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageFactory;
 import io.pravega.segmentstore.storage.SyncStorage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.rolling.RollingStorage;
 import java.util.concurrent.ExecutorService;
 
@@ -40,7 +40,7 @@ public class ExtendedS3StorageFactory implements StorageFactory {
 
     @Override
     public Storage createStorageAdapter() {
-        return new AsyncStorageWrapper(new RollingStorage(createS3Storage()), this.executor);
+        return new SyncStorageAdapter(new RollingStorage(createS3Storage()), this.executor);
     }
 
     @Override

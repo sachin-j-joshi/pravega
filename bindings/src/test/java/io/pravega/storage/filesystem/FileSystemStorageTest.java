@@ -12,8 +12,8 @@ package io.pravega.storage.filesystem;
 import io.pravega.common.io.FileHelpers;
 import io.pravega.segmentstore.contracts.BadOffsetException;
 import io.pravega.segmentstore.contracts.StreamSegmentNotExistsException;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.Storage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.rolling.RollingStorageTestBase;
 import io.pravega.shared.metrics.MetricsConfig;
 import io.pravega.shared.metrics.MetricsProvider;
@@ -137,7 +137,7 @@ public class FileSystemStorageTest extends IdempotentStorageTestBase {
 
     @Override
     protected Storage createStorage() {
-        return new AsyncStorageWrapper(new FileSystemStorage(this.adapterConfig), executorService());
+        return new SyncStorageAdapter(new FileSystemStorage(this.adapterConfig), executorService());
     }
 
     //region RollingStorageTests

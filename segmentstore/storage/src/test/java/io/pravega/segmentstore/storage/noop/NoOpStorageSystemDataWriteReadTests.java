@@ -9,10 +9,10 @@
  */
 package io.pravega.segmentstore.storage.noop;
 
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageTestBase;
 import io.pravega.segmentstore.storage.SyncStorage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.mocks.InMemoryStorageFactory;
 import org.junit.Before;
 
@@ -37,7 +37,7 @@ public class NoOpStorageSystemDataWriteReadTests extends StorageTestBase {
 
     @Override
     protected Storage createStorage() {
-        return new AsyncStorageWrapper(new NoOpStorage(config, systemStorage, null), executorService());
+        return new SyncStorageAdapter(new NoOpStorage(config, systemStorage, null), executorService());
     }
 
     /**

@@ -10,9 +10,9 @@
 package io.pravega.segmentstore.storage.noop;
 
 import com.google.common.base.Preconditions;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageFactory;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.rolling.RollingStorage;
 
 import java.util.concurrent.Executor;
@@ -37,6 +37,6 @@ public class NoOpStorageFactory implements StorageFactory {
     public Storage createStorageAdapter() {
         NoOpStorage s = new NoOpStorage(this.config, this.systemStorageFactory.createSyncStorage(),
                 userStorageFactory == null ? null : userStorageFactory.createSyncStorage());
-        return new AsyncStorageWrapper(new RollingStorage(s), this.executor);
+        return new SyncStorageAdapter(new RollingStorage(s), this.executor);
     }
 }

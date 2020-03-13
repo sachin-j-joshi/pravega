@@ -9,11 +9,11 @@
  */
 package io.pravega.segmentstore.storage.mocks;
 
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.SegmentHandle;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageNotPrimaryException;
 import io.pravega.segmentstore.storage.StorageTestBase;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.rolling.RollingStorageTestBase;
 import io.pravega.test.common.AssertExtensions;
 import java.io.ByteArrayInputStream;
@@ -71,7 +71,7 @@ public class InMemoryStorageTests extends StorageTestBase {
         @Cleanup
         val baseStorage = new InMemoryStorage();
         @Cleanup
-        val storage = new AsyncStorageWrapper(baseStorage, executorService());
+        val storage = new SyncStorageAdapter(baseStorage, executorService());
         storage.initialize(DEFAULT_EPOCH);
 
         // Part 1: Create a segment and verify all operations are allowed.

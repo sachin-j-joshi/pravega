@@ -75,7 +75,6 @@ import io.pravega.segmentstore.server.tables.ContainerTableExtension;
 import io.pravega.segmentstore.server.tables.ContainerTableExtensionImpl;
 import io.pravega.segmentstore.server.writer.StorageWriterFactory;
 import io.pravega.segmentstore.server.writer.WriterConfig;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.DataLogWriterNotPrimaryException;
 import io.pravega.segmentstore.storage.DurableDataLog;
 import io.pravega.segmentstore.storage.DurableDataLogFactory;
@@ -83,6 +82,7 @@ import io.pravega.segmentstore.storage.SegmentHandle;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageFactory;
 import io.pravega.segmentstore.storage.SyncStorage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.cache.CacheStorage;
 import io.pravega.segmentstore.storage.cache.DirectMemoryCache;
 import io.pravega.segmentstore.storage.mocks.InMemoryDurableDataLogFactory;
@@ -2407,11 +2407,11 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
 
         @Override
         public Storage createStorageAdapter() {
-            return new WatchableAsyncStorageWrapper(new RollingStorage(this.baseStorage), this.executor);
+            return new WatchableSyncStorageAdapter(new RollingStorage(this.baseStorage), this.executor);
         }
 
-        private class WatchableAsyncStorageWrapper extends AsyncStorageWrapper {
-            public WatchableAsyncStorageWrapper(SyncStorage syncStorage, Executor executor) {
+        private class WatchableSyncStorageAdapter extends SyncStorageAdapter {
+            public WatchableSyncStorageAdapter(SyncStorage syncStorage, Executor executor) {
                 super(syncStorage, executor);
             }
 

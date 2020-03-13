@@ -12,10 +12,10 @@ package io.pravega.segmentstore.server;
 import com.google.common.base.Preconditions;
 import io.pravega.segmentstore.contracts.SegmentProperties;
 import io.pravega.segmentstore.contracts.StreamSegmentNotExistsException;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.SegmentHandle;
 import io.pravega.segmentstore.storage.SegmentRollingPolicy;
 import io.pravega.segmentstore.storage.Storage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.mocks.InMemoryStorage;
 import io.pravega.test.common.ErrorInjector;
 import java.io.InputStream;
@@ -76,7 +76,7 @@ public class TestStorage implements Storage {
     public TestStorage(InMemoryStorage wrappedStorage, Executor executor) {
         Preconditions.checkNotNull(wrappedStorage, "wrappedStorage");
         this.wrappedSyncStorage = Preconditions.checkNotNull(wrappedStorage, "wrappedStorage");
-        this.wrappedStorage = new AsyncStorageWrapper(wrappedStorage, executor);
+        this.wrappedStorage = new SyncStorageAdapter(wrappedStorage, executor);
         this.truncationOffsets = new HashMap<>();
     }
 

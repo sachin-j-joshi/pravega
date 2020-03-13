@@ -21,9 +21,9 @@ import io.pravega.segmentstore.server.DataCorruptionException;
 import io.pravega.segmentstore.server.MetadataBuilder;
 import io.pravega.segmentstore.server.TestCacheManager;
 import io.pravega.segmentstore.server.UpdateableContainerMetadata;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.SegmentHandle;
 import io.pravega.segmentstore.storage.SyncStorage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.cache.CacheStorage;
 import io.pravega.segmentstore.storage.cache.DirectMemoryCache;
 import io.pravega.segmentstore.storage.mocks.InMemoryStorage;
@@ -769,7 +769,7 @@ public class AttributeIndexTests extends ThreadPooledTestSuite {
             this.cacheStorage.close();
         }
 
-        private class TestStorage extends AsyncStorageWrapper {
+        private class TestStorage extends SyncStorageAdapter {
             private final SyncStorage wrappedStorage;
             private WriteInterceptor writeInterceptor;
             private SealInterceptor sealInterceptor;

@@ -20,9 +20,9 @@ import io.pravega.common.util.ConfigBuilder;
 import io.pravega.common.util.Property;
 import io.pravega.segmentstore.contracts.SegmentProperties;
 import io.pravega.segmentstore.contracts.StreamSegmentExistsException;
-import io.pravega.segmentstore.storage.AsyncStorageWrapper;
 import io.pravega.segmentstore.storage.SegmentHandle;
 import io.pravega.segmentstore.storage.Storage;
+import io.pravega.segmentstore.storage.SyncStorageAdapter;
 import io.pravega.segmentstore.storage.rolling.RollingStorageTestBase;
 import io.pravega.shared.metrics.MetricsConfig;
 import io.pravega.shared.metrics.MetricsProvider;
@@ -250,7 +250,7 @@ public class ExtendedS3StorageTest extends IdempotentStorageTestBase {
     private static Storage createStorage(S3Client client, ExtendedS3StorageConfig adapterConfig, Executor executor) {
         // We can't use the factory here because we're setting our own (mock) client.
         ExtendedS3Storage storage = new ExtendedS3Storage(client, adapterConfig);
-        return new AsyncStorageWrapper(storage, executor);
+        return new SyncStorageAdapter(storage, executor);
     }
 
     @Override
