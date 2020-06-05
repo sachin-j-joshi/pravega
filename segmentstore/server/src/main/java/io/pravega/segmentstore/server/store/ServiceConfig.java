@@ -18,6 +18,8 @@ import io.pravega.segmentstore.server.CachePolicy;
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
 import java.time.Duration;
+import io.pravega.segmentstore.storage.StorageManagerLayoutType;
+import io.pravega.segmentstore.storage.StorageManagerType;
 import lombok.Getter;
 import lombok.SneakyThrows;
 
@@ -45,6 +47,8 @@ public class ServiceConfig {
     public static final Property<String> CLUSTER_NAME = Property.named("clusterName", "pravega-cluster");
     public static final Property<DataLogType> DATALOG_IMPLEMENTATION = Property.named("dataLogImplementation", DataLogType.INMEMORY);
     public static final Property<StorageType> STORAGE_IMPLEMENTATION = Property.named("storageImplementation", StorageType.HDFS);
+    public static final Property<StorageManagerLayoutType> STORAGE_LAYOUT = Property.named("storageLayout", StorageManagerLayoutType.LEGACY);
+    public static final Property<StorageManagerType> STORAGE_MANAGER = Property.named("storageManager", StorageManagerType.NONE);
     public static final Property<Boolean> READONLY_SEGMENT_STORE = Property.named("readOnlySegmentStore", false);
     public static final Property<Long> CACHE_POLICY_MAX_SIZE = Property.named("cacheMaxSize", 4L * 1024 * 1024 * 1024);
     public static final Property<Integer> CACHE_POLICY_TARGET_UTILIZATION = Property.named("cacheTargetUtilizationPercent", (int) (100 * CachePolicy.DEFAULT_TARGET_UTILIZATION));
@@ -221,6 +225,18 @@ public class ServiceConfig {
     private final StorageType storageImplementation;
 
     /**
+     * The Type of Storage Layout to use.
+     */
+    @Getter
+    private final StorageManagerLayoutType storageLayout;
+
+    /**
+     * The Type of Storage manager to use.
+     */
+    @Getter
+    private final StorageManagerType storageManager;
+
+    /**
      * Whether this SegmentStore instance is Read-Only (i.e., it can only process reads from Storage and nothing else).
      * Note that if this is set to 'true', then many other settings will not apply. The most important other one to set
      * is 'Storage Implementation'.
@@ -317,6 +333,8 @@ public class ServiceConfig {
         this.clusterName = properties.get(CLUSTER_NAME);
         this.dataLogTypeImplementation = properties.getEnum(DATALOG_IMPLEMENTATION, DataLogType.class);
         this.storageImplementation = properties.getEnum(STORAGE_IMPLEMENTATION, StorageType.class);
+        this.storageLayout = properties.getEnum(STORAGE_LAYOUT, StorageManagerLayoutType.class);
+        this.storageManager = properties.getEnum(STORAGE_MANAGER, StorageManagerType.class);
         this.readOnlySegmentStore = properties.getBoolean(READONLY_SEGMENT_STORE);
         this.secureZK = properties.getBoolean(SECURE_ZK);
         this.zkTrustStore = properties.get(ZK_TRUSTSTORE_LOCATION);

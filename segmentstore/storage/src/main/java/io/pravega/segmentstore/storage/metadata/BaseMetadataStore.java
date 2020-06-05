@@ -20,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
 import javax.annotation.concurrent.GuardedBy;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -539,7 +540,7 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
      */
     @Builder(toBuilder = true)
     @Data
-    public static class TransactionData {
+    public static class TransactionData implements Serializable {
         /**
          * Version
          */
