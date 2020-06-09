@@ -834,7 +834,6 @@ public class ChunkStorageManagerTests extends ThreadPooledTestSuite {
         Assert.assertEquals(0, metadataAfter.getLength());
     }
 
-
     /**
      * Test failover scenario.
      * @throws Exception
