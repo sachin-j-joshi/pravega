@@ -10,6 +10,11 @@
 package io.pravega.segmentstore.storage.chunklayer;
 
 import com.google.common.base.Preconditions;
+import io.pravega.common.ObjectBuilder;
+import io.pravega.common.io.serialization.RevisionDataInput;
+import io.pravega.common.io.serialization.RevisionDataOutput;
+import io.pravega.common.io.serialization.VersionedSerializer;
+import io.pravega.common.util.ByteArraySegment;
 import io.pravega.segmentstore.storage.metadata.ChunkMetadata;
 import io.pravega.segmentstore.storage.metadata.ChunkMetadataStore;
 import io.pravega.segmentstore.storage.metadata.MetadataTransaction;
@@ -18,17 +23,23 @@ import io.pravega.segmentstore.storage.metadata.StorageMetadataException;
 import io.pravega.shared.NameUtils;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NonNull;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
-import java.io.BufferedReader;
+import lombok.var;
+
 import java.io.ByteArrayInputStream;
+import java.io.EOFException;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+
+import static io.pravega.segmentstore.storage.metadata.StorageMetadata.fromNullableString;
+import static io.pravega.segmentstore.storage.metadata.StorageMetadata.toNullableString;
 
 /**
  * This class implements system journaling functionality for critical storage system segments which is useful for bootstrap after failover.
@@ -43,11 +54,10 @@ import java.util.HashMap;
  */
 @Slf4j
 public class SystemJournal {
-    private static final String ADD_RECORD = "ADD";
-    private static final String TRUNCATE_RECORD = "TRUNCATE";
-    private static final String RECORD_SEPARATOR = ",";
-    private static final String START_TOKEN = "BEGIN";
-    private static final String END_TOKEN = "END";
+    /**
+     * Serializer for {@link SystemJournalRecordBatch}.
+     */
+    private static final SystemJournalRecordBatch.SystemJournalRecordBatchSerializer BATCH_SERIALIZER = new SystemJournalRecordBatch.SystemJournalRecordBatchSerializer();
 
     private final Object lock = new Object();
 
@@ -103,11 +113,11 @@ public class SystemJournal {
     /**
      * Constructs an instance of {@link SystemJournal}.
      *
-     * @param containerId Container id of the owner container.
-     * @param epoch Epoch of the current container instance.
-     * @param chunkStorage ChunkStorageProvider instance to use for writing all logs.
+     * @param containerId   Container id of the owner container.
+     * @param epoch         Epoch of the current container instance.
+     * @param chunkStorage  ChunkStorageProvider instance to use for writing all logs.
      * @param metadataStore ChunkMetadataStore for owner container.
-     * @param config       Configuration options for this ChunkStorageManager instance.
+     * @param config        Configuration options for this ChunkStorageManager instance.
      * @throws Exception In case of any errors.
      */
     public SystemJournal(int containerId, long epoch, ChunkStorageProvider chunkStorage, ChunkMetadataStore metadataStore, ChunkStorageManagerConfig config) throws Exception {
@@ -154,22 +164,18 @@ public class SystemJournal {
         // Open the underlying chunk to write.
         ChunkHandle h = getChunkHandleForSystemJournal();
 
-        StringBuffer stringBuffer = new StringBuffer();
-        stringBuffer.append("\n");
-        stringBuffer.append(START_TOKEN);
-        stringBuffer.append(RECORD_SEPARATOR);
-        for (val record : records) {
-            String logLine = record.serialize();
-            stringBuffer.append(logLine);
-            stringBuffer.append(RECORD_SEPARATOR);
+        SystemJournalRecordBatch batch = SystemJournalRecordBatch.builder().systemJournalRecords(records).build();
+        ByteArraySegment bytes;
+        try {
+            bytes = BATCH_SERIALIZER.serialize(batch);
+        } catch (IOException e) {
+            throw new ChunkStorageException("Unable to serialize", "");
         }
-        stringBuffer.append(END_TOKEN);
-
         // Persist
-        byte[] bytes = stringBuffer.toString().getBytes();
         synchronized (lock) {
-            val bytesWritten = chunkStorage.write(h, systemJournalOffset, bytes.length, new ByteArrayInputStream(bytes));
-            Preconditions.checkState(bytesWritten == bytes.length);
+            val bytesWritten = chunkStorage.write(h, systemJournalOffset, bytes.getLength(),
+                    new ByteArrayInputStream(bytes.array(), bytes.arrayOffset(), bytes.getLength()));
+            Preconditions.checkState(bytesWritten == bytes.getLength());
             systemJournalOffset += bytesWritten;
 
             // Add a new log file if required.
@@ -219,6 +225,8 @@ public class SystemJournal {
             // Step 4: Apply the truncate offsets.
             applyFinalTruncateOffsets(txn, finalTruncateOffsets, finalFirstChunkStartsAtOffsets);
 
+            validateAndSaveSnapshot(txn);
+
             // Step 5: Finally commit all data.
             txn.commit(true, true);
         }
@@ -243,32 +251,35 @@ public class SystemJournal {
                     remaining -= bytesRead;
                     fromOffset += bytesRead;
                 }
-                BufferedReader reader = new BufferedReader(new InputStreamReader(new ByteArrayInputStream(contents)));
-                String line;
 
-                while ((line = reader.readLine()) != null) {
-                    // Handle only whole records.
-                    if (line.startsWith(START_TOKEN) && line.endsWith(END_TOKEN)) {
-                        String[] records = line.split(RECORD_SEPARATOR);
-                        for (String record : records) {
-                            String[] parts = record.split(":");
-                            if (ADD_RECORD.equals(parts[0]) && parts.length == 5) {
-                                String segmentName = parts[1];
-                                String oldChunkName = parts[2];
-                                String newChunkName = parts[3];
-                                long offset = Long.parseLong(parts[4]);
+                var input = new ByteArrayInputStream(contents);
 
-                                applyChunkAddition(txn, chunkStartOffsets, segmentName, oldChunkName, newChunkName, offset);
-                            }
-                            if (TRUNCATE_RECORD.equals(parts[0]) && parts.length == 5) {
-                                String segmentName = parts[1];
-                                long truncateAt = Long.parseLong(parts[2]);
-                                String firstChunkName = parts[3];
-                                long truncateStartAt = Long.parseLong(parts[4]);
-                                finalTruncateOffsets.put(segmentName, truncateAt);
-                                finalFirstChunkStartsAtOffsets.put(segmentName, truncateStartAt);
+                int offset = 0;
+                while (offset < contents.length) {
+                    try {
+                        val batch = BATCH_SERIALIZER.deserialize(input);
+                        if (null != batch.getSystemJournalRecords()) {
+                            for (var record : batch.getSystemJournalRecords()) {
+                                if (record instanceof ChunkAddedRecord) {
+                                    val chunkAddedRecord = (ChunkAddedRecord) record;
+                                    applyChunkAddition(txn, chunkStartOffsets,
+                                            chunkAddedRecord.getSegmentName(),
+                                            fromNullableString(chunkAddedRecord.getOldChunkName()),
+                                            chunkAddedRecord.getNewChunkName(),
+                                            chunkAddedRecord.getOffset());
+                                }
+
+                                if (record instanceof TruncationRecord) {
+                                    val truncationRecord = (TruncationRecord) record;
+                                    finalTruncateOffsets.put(truncationRecord.getSegmentName(), truncationRecord.getOffset());
+                                    finalFirstChunkStartsAtOffsets.put(truncationRecord.getSegmentName(), truncationRecord.getStartOffset());
+                                }
                             }
                         }
+
+                    } catch (EOFException e) {
+                        log.info("Done processing file {}.", systemLogName);
+                        break;
                     }
                 }
                 // Move to next file.
@@ -301,7 +312,6 @@ public class SystemJournal {
     }
 
     /**
-     *
      * @param txn
      * @param finalTruncateOffsets
      * @param finalFirstChunkStartsAtOffsets
@@ -363,6 +373,7 @@ public class SystemJournal {
             txn.update(oldChunk);
         } else {
             segmentMetadata.setFirstChunk(newChunkName);
+            segmentMetadata.setStartOffset(offset);
         }
         segmentMetadata.setLastChunk(newChunkName);
         segmentMetadata.setLastChunkStartOffset(offset);
@@ -383,10 +394,10 @@ public class SystemJournal {
     private ChunkHandle getChunkHandleForSystemJournal() throws ChunkStorageException {
         ChunkHandle h;
         val systemLogName = getSystemJournalFileName();
-        if (!chunkStorage.exists(systemLogName)) {
-            h = chunkStorage.create(systemLogName);
-        } else {
+        try {
             h = chunkStorage.openWrite(systemLogName);
+        } catch (ChunkNotFoundException e) {
+            h = chunkStorage.create(systemLogName);
         }
         return h;
     }
@@ -419,6 +430,33 @@ public class SystemJournal {
         segmentMetadata.setFirstChunkStartOffset(firstChunkStartsAt);
         segmentMetadata.checkInvariants();
 
+    }
+
+    public void validateAndSaveSnapshot(MetadataTransaction txn) throws Exception {
+        for (String systemSegment : systemSegments) {
+            SegmentMetadata segmentMetadata = (SegmentMetadata) txn.get(systemSegment);
+            segmentMetadata.checkInvariants();
+            String currentChunkName = segmentMetadata.getFirstChunk();
+            ChunkMetadata currentMetadata = null;
+            long dataSize = 0;
+            long chunkCount = 0;
+            while (null != currentChunkName) {
+                currentMetadata = (ChunkMetadata) txn.get(currentChunkName);
+
+                val chunkInfo = chunkStorage.getInfo(currentChunkName);
+                dataSize += currentMetadata.getLength();
+                chunkCount++;
+                Preconditions.checkState(chunkInfo.getLength() >= currentMetadata.getLength(),
+                        "Wrong chunk length chunkInfo={}, currentMetadata={}.", chunkInfo.getLength(), currentMetadata.getLength());
+                // move to next chunk
+                currentChunkName = currentMetadata.getNextChunk();
+            }
+            Preconditions.checkState(chunkCount == segmentMetadata.getChunkCount(),
+                    "Wrong chunk count expected={}, actual={}.", chunkCount, segmentMetadata.getChunkCount());
+            Preconditions.checkState(dataSize == segmentMetadata.getLength() - segmentMetadata.getFirstChunkStartOffset(),
+                    "Data size does not match dataSize={}, length={}, startOffset={}.",
+                    dataSize, segmentMetadata.getLength(), segmentMetadata.getFirstChunkStartOffset());
+        }
     }
 
     /**
@@ -456,19 +494,88 @@ public class SystemJournal {
     /**
      * Represents a system journal record.
      */
-    public interface SystemJournalRecord {
-        String serialize();
+    @Data
+    public static class SystemJournalRecord {
+        /**
+         * Serializer that implements {@link VersionedSerializer}.
+         */
+        public static class SystemJournalRecordSerializer extends VersionedSerializer.MultiType<SystemJournalRecord> {
+            /**
+             * Declare all supported serializers of subtypes.
+             *
+             * @param builder A MultiType.Builder that can be used to declare serializers.
+             */
+            @Override
+            protected void declareSerializers(Builder builder) {
+                // Unused values (Do not repurpose!):
+                // - 0: Unsupported Serializer.
+                builder.serializer(ChunkAddedRecord.class, 1, new ChunkAddedRecord.Serializer())
+                        .serializer(TruncationRecord.class, 2, new TruncationRecord.Serializer());
+            }
+        }
     }
 
     /**
-     *  Journal record for chunk addition.
+     * Represents a system journal record.
      */
+    @Builder(toBuilder = true)
     @Data
-    @Builder
-    public static class ChunkAddedRecord implements SystemJournalRecord {
+    @EqualsAndHashCode
+    public static class SystemJournalRecordBatch {
+        @NonNull
+        private final Collection<SystemJournalRecord> systemJournalRecords;
+
+        /**
+         * Builder that implements {@link ObjectBuilder}.
+         */
+        public static class SystemJournalRecordBatchBuilder implements ObjectBuilder<SystemJournalRecordBatch> {
+        }
+
+        /**
+         * Serializer that implements {@link VersionedSerializer}.
+         */
+        public static class SystemJournalRecordBatchSerializer
+                extends VersionedSerializer.WithBuilder<SystemJournalRecordBatch, SystemJournalRecordBatchBuilder> {
+            private static final SystemJournalRecord.SystemJournalRecordSerializer SERIALIZER = new SystemJournalRecord.SystemJournalRecordSerializer();
+            private static final RevisionDataOutput.ElementSerializer<SystemJournalRecord> ELEMENT_SERIALIZER = (dataOutput, element) -> SERIALIZER.serialize(dataOutput, element);
+            private static final RevisionDataInput.ElementDeserializer<SystemJournalRecord> ELEMENT_DESERIALIZER = dataInput -> SERIALIZER.deserialize(dataInput.getBaseStream());
+
+            @Override
+            protected SystemJournalRecordBatchBuilder newBuilder() {
+                return builder();
+            }
+
+            @Override
+            protected byte getWriteVersion() {
+                return 0;
+            }
+
+            @Override
+            protected void declareVersions() {
+                version(0).revision(0, this::write00, this::read00);
+            }
+
+            private void read00(RevisionDataInput input, SystemJournalRecordBatchBuilder b) throws IOException {
+                b.systemJournalRecords(input.readCollection(ELEMENT_DESERIALIZER));
+            }
+
+            private void write00(SystemJournalRecordBatch object, RevisionDataOutput output) throws IOException {
+                output.writeCollection(object.systemJournalRecords, ELEMENT_SERIALIZER);
+            }
+        }
+    }
+
+    /**
+     * Journal record for chunk addition.
+     */
+    @Builder(toBuilder = true)
+    @Data
+    @EqualsAndHashCode(callSuper = true)
+    public static class ChunkAddedRecord extends SystemJournalRecord {
         /**
          * Name of the segment.
          */
+        @NonNull
         private final String segmentName;
 
         /**
@@ -484,31 +591,61 @@ public class SystemJournal {
         /**
          * Name of the new chunk.
          */
+        @NonNull
         private final String newChunkName;
 
         /**
-         * Serializes this record.
-         * @return String representation.
+         * Builder that implements {@link ObjectBuilder}.
          */
-        public String serialize() {
-            return String.format("%s:%s:%s:%s:%d",
-                    ADD_RECORD,
-                    segmentName,
-                    oldChunkName == null ? "" : oldChunkName,
-                    newChunkName == null ? "" : newChunkName,
-                    offset);
+        public static class ChunkAddedRecordBuilder implements ObjectBuilder<ChunkAddedRecord> {
+        }
+
+        /**
+         * Serializer that implements {@link VersionedSerializer}.
+         */
+        public static class Serializer extends VersionedSerializer.WithBuilder<ChunkAddedRecord, ChunkAddedRecordBuilder> {
+            @Override
+            protected ChunkAddedRecordBuilder newBuilder() {
+                return ChunkAddedRecord.builder();
+            }
+
+            @Override
+            protected byte getWriteVersion() {
+                return 0;
+            }
+
+            @Override
+            protected void declareVersions() {
+                version(0).revision(0, this::write00, this::read00);
+            }
+
+            private void write00(ChunkAddedRecord object, RevisionDataOutput output) throws IOException {
+                output.writeUTF(object.segmentName);
+                output.writeUTF(fromNullableString(object.newChunkName));
+                output.writeUTF(fromNullableString(object.oldChunkName));
+                output.writeCompactLong(object.offset);
+            }
+
+            private void read00(RevisionDataInput input, ChunkAddedRecordBuilder b) throws IOException {
+                b.segmentName(input.readUTF());
+                b.newChunkName(toNullableString(input.readUTF()));
+                b.oldChunkName(toNullableString(input.readUTF()));
+                b.offset(input.readCompactLong());
+            }
         }
     }
 
     /**
-     *  Journal record for segment truncation.
+     * Journal record for segment truncation.
      */
+    @Builder(toBuilder = true)
     @Data
-    @Builder
-    public static class TruncationRecord implements SystemJournalRecord {
+    @EqualsAndHashCode(callSuper = true)
+    public static class TruncationRecord extends SystemJournalRecord {
         /**
          * Name of the segment.
          */
+        @NonNull
         private final String segmentName;
 
         /**
@@ -519,6 +656,7 @@ public class SystemJournal {
         /**
          * Name of the new first chunk.
          */
+        @NonNull
         private final String firstChunkName;
 
         /**
@@ -527,16 +665,43 @@ public class SystemJournal {
         private final long startOffset;
 
         /**
-         * Serializes this record.
-         * @return String representation.
+         * Builder that implements {@link ObjectBuilder}.
          */
-        public String serialize() {
-            return String.format("%s:%s:%d:%s:%d",
-                    TRUNCATE_RECORD,
-                    segmentName,
-                    offset,
-                    firstChunkName,
-                    startOffset);
+        public static class TruncationRecordBuilder implements ObjectBuilder<TruncationRecord> {
+        }
+
+        /**
+         * Serializer that implements {@link VersionedSerializer}.
+         */
+        public static class Serializer extends VersionedSerializer.WithBuilder<TruncationRecord, TruncationRecord.TruncationRecordBuilder> {
+            @Override
+            protected TruncationRecord.TruncationRecordBuilder newBuilder() {
+                return TruncationRecord.builder();
+            }
+
+            @Override
+            protected byte getWriteVersion() {
+                return 0;
+            }
+
+            @Override
+            protected void declareVersions() {
+                version(0).revision(0, this::write00, this::read00);
+            }
+
+            private void write00(TruncationRecord object, RevisionDataOutput output) throws IOException {
+                output.writeUTF(object.segmentName);
+                output.writeCompactLong(object.offset);
+                output.writeUTF(object.firstChunkName);
+                output.writeCompactLong(object.startOffset);
+            }
+
+            private void read00(RevisionDataInput input, TruncationRecord.TruncationRecordBuilder b) throws IOException {
+                b.segmentName(input.readUTF());
+                b.offset(input.readCompactLong());
+                b.firstChunkName(input.readUTF());
+                b.startOffset(input.readCompactLong());
+            }
         }
     }
 }

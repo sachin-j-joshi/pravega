@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  */
 
 package io.pravega.segmentstore.storage.chunklayer;
@@ -29,6 +29,7 @@ import org.junit.rules.Timeout;
 
 import java.io.ByteArrayInputStream;
 import java.time.Duration;
+import java.util.ArrayList;
 
 /**
  * Tests for testing bootstrap functionality with {@link SystemJournal}.
@@ -62,7 +63,6 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
     protected String[] getSystemSegments(String systemSegmentName) {
         return new String[]{systemSegmentName};
     }
-
 
     @Test
     public void testInitialization() throws Exception {
@@ -98,15 +98,15 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         val policy = new SegmentRollingPolicy(maxLength);
         val config = ChunkStorageManagerConfig.DEFAULT_CONFIG.toBuilder().defaultRollingPolicy(policy).build();
 
-        AssertExtensions.assertThrows( "Should not allow null storageProvider",
+        AssertExtensions.assertThrows("Should not allow null storageProvider",
                 () -> new SystemJournal(containerId, epoch, null, metadataStore, config),
                 ex -> ex instanceof NullPointerException);
 
-        AssertExtensions.assertThrows( "Should not allow null metadataStore",
+        AssertExtensions.assertThrows("Should not allow null metadataStore",
                 () -> new SystemJournal(containerId, epoch, storageProvider, null, config),
                 ex -> ex instanceof NullPointerException);
 
-        AssertExtensions.assertThrows( "Should not allow null policy",
+        AssertExtensions.assertThrows("Should not allow null policy",
                 () -> new SystemJournal(containerId, epoch, storageProvider, metadataStore, null),
                 ex -> ex instanceof NullPointerException);
 
@@ -276,7 +276,6 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
      * The test adds a few chunks to the system segments and then fails over.
      * After fail over the zombie instances continue to write junk data to both system segment and journal file.
      * The new instance should read the journal log file and recreate the layout of system segments.
-
      * @throws Exception Throws exception in case of any error.
      */
     @Test
@@ -554,10 +553,85 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         }
     }
 
+    @Test
+    public void testChunkAddedRecordSerialization() throws Exception {
+        testSystemJournalRecordSerialization(SystemJournal.ChunkAddedRecord.builder()
+                .segmentName("segmentName")
+                .newChunkName("newChunkName")
+                .oldChunkName("oldChunkName")
+                .offset(1)
+                .build());
+
+        // With nullable values
+        testSystemJournalRecordSerialization(SystemJournal.ChunkAddedRecord.builder()
+                .segmentName("segmentName")
+                .newChunkName("newChunkName")
+                .oldChunkName(null)
+                .offset(1)
+                .build());
+    }
+
+    @Test
+    public void testTruncationRecordSerialization() throws Exception {
+        testSystemJournalRecordSerialization(SystemJournal.TruncationRecord.builder()
+                .segmentName("segmentName")
+                .offset(1)
+                .firstChunkName("firstChunkName")
+                .startOffset(2)
+                .build());
+    }
+
+    private void testSystemJournalRecordSerialization(SystemJournal.SystemJournalRecord original) throws Exception {
+        val serializer = new SystemJournal.SystemJournalRecord.SystemJournalRecordSerializer();
+        val bytes = serializer.serialize(original);
+        val obj = serializer.deserialize(bytes);
+        Assert.assertEquals(original, obj);
+    }
+
+    @Test
+    public void testSystemJournalRecordBatchSerialization() throws Exception {
+        ArrayList<SystemJournal.SystemJournalRecord> lst = new ArrayList<SystemJournal.SystemJournalRecord>();
+        testSystemJournalRecordBatchSerialization(
+                SystemJournal.SystemJournalRecordBatch.builder()
+                        .systemJournalRecords(lst)
+                        .build());
+
+        ArrayList<SystemJournal.SystemJournalRecord> lst2 = new ArrayList<SystemJournal.SystemJournalRecord>();
+        lst2.add(SystemJournal.ChunkAddedRecord.builder()
+                .segmentName("segmentName")
+                .newChunkName("newChunkName")
+                .oldChunkName("oldChunkName")
+                .offset(1)
+                .build());
+        lst2.add(SystemJournal.ChunkAddedRecord.builder()
+                .segmentName("segmentName")
+                .newChunkName("newChunkName")
+                .oldChunkName(null)
+                .offset(1)
+                .build());
+        lst2.add(SystemJournal.TruncationRecord.builder()
+                .segmentName("segmentName")
+                .offset(1)
+                .firstChunkName("firstChunkName")
+                .startOffset(2)
+                .build());
+        testSystemJournalRecordBatchSerialization(
+                SystemJournal.SystemJournalRecordBatch.builder()
+                        .systemJournalRecords(lst)
+                        .build());
+    }
+
+    private void testSystemJournalRecordBatchSerialization(SystemJournal.SystemJournalRecordBatch original) throws Exception {
+        val serializer = new SystemJournal.SystemJournalRecordBatch.SystemJournalRecordBatchSerializer();
+        val bytes = serializer.serialize(original);
+        val obj = serializer.deserialize(bytes);
+        Assert.assertEquals(original, obj);
+    }
+
     /**
      * Tests {@link SystemJournal}  with non Appendable {@link ChunkStorageProvider} using {@link SystemJournalTests}.
      */
-    public static class NonAppendableChunkStorageProviderSystemJournalTests  extends SystemJournalTests {
+    public static class NonAppendableChunkStorageProviderSystemJournalTests extends SystemJournalTests {
         @Before
         public void before() throws Exception {
             super.before();
