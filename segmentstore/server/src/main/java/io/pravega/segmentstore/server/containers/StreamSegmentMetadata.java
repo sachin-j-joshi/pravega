@@ -21,6 +21,7 @@ import io.pravega.segmentstore.contracts.StreamSegmentInformation;
 import io.pravega.segmentstore.server.ContainerMetadata;
 import io.pravega.segmentstore.server.SegmentMetadata;
 import io.pravega.segmentstore.server.UpdateableSegmentMetadata;
+
 import java.util.AbstractMap;
 import java.util.Collection;
 import java.util.Comparator;
@@ -32,6 +33,7 @@ import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
+
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
@@ -188,8 +190,8 @@ public class StreamSegmentMetadata implements UpdateableSegmentMetadata {
     @Override
     public synchronized Map<UUID, Long> getAttributes(BiPredicate<UUID, Long> filter) {
         return getAttributes().entrySet().stream()
-                              .filter(e -> filter.test(e.getKey(), e.getValue()))
-                              .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                .filter(e -> filter.test(e.getKey(), e.getValue()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     @Override
@@ -353,7 +355,11 @@ public class StreamSegmentMetadata implements UpdateableSegmentMetadata {
 
     @Override
     public synchronized SegmentProperties getSnapshot() {
-        return StreamSegmentInformation.from(this).attributes(new HashMap<>(getAttributes())).build();
+        return StreamSegmentInformation.from(this)
+                .deletedInStorage(deletedInStorage)
+                .sealedInStorage(sealedInStorage)
+                .storageLength(storageLength)
+                .attributes(new HashMap<>(getAttributes())).build();
     }
 
     @Override
@@ -386,9 +392,9 @@ public class StreamSegmentMetadata implements UpdateableSegmentMetadata {
 
         // Collect candidates and order them by lastUsed (oldest to newest).
         val candidates = this.extendedAttributes.entrySet().stream()
-                                                .filter(e -> e.getValue().lastUsed < lastUsedCutoff)
-                                                .sorted(Comparator.comparingLong(e -> e.getValue().lastUsed))
-                                                .collect(Collectors.toList());
+                .filter(e -> e.getValue().lastUsed < lastUsedCutoff)
+                .sorted(Comparator.comparingLong(e -> e.getValue().lastUsed))
+                .collect(Collectors.toList());
 
         // Start evicting candidates, beginning from the oldest, until we have either evicted all of them or brought the
         // total count to an acceptable limit.

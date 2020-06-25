@@ -11,7 +11,9 @@ package io.pravega.segmentstore.server.store;
 
 import io.pravega.segmentstore.storage.mocks.InMemoryDurableDataLogFactory;
 import io.pravega.segmentstore.storage.mocks.InMemoryStorageFactory;
+
 import java.util.concurrent.ScheduledExecutorService;
+
 import org.junit.After;
 import org.junit.Before;
 
@@ -42,10 +44,10 @@ public class StreamSegmentServiceTests extends StreamSegmentStoreTestBase {
     }
 
     @Override
-    protected ServiceBuilder createBuilder(ServiceBuilderConfig.Builder builderConfig, int instanceId) {
+    protected ServiceBuilder createBuilder(ServiceBuilderConfig.Builder builderConfig, int instanceId, boolean useChunkStorage) {
         return ServiceBuilder.newInMemoryBuilder(builderConfig.build())
-                             .withStorageFactory(setup -> this.storageFactory)
-                             .withDataLogFactory(setup -> this.durableDataLogFactory);
+                .withStorageFactory(setup -> this.storageFactory)
+                .withDataLogFactory(setup -> this.durableDataLogFactory);
     }
 
     public static class PermanentDurableDataLogFactory extends InMemoryDurableDataLogFactory {

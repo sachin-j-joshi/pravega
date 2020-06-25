@@ -84,6 +84,7 @@ import io.pravega.segmentstore.storage.StorageFactory;
 import io.pravega.segmentstore.storage.SyncStorage;
 import io.pravega.segmentstore.storage.cache.CacheStorage;
 import io.pravega.segmentstore.storage.cache.DirectMemoryCache;
+import io.pravega.segmentstore.storage.chunklayer.SystemJournal;
 import io.pravega.segmentstore.storage.mocks.InMemoryDurableDataLogFactory;
 import io.pravega.segmentstore.storage.mocks.InMemoryStorageFactory;
 import io.pravega.segmentstore.storage.rolling.RollingStorage;
@@ -92,6 +93,7 @@ import io.pravega.test.common.AssertExtensions;
 import io.pravega.test.common.IntentionalException;
 import io.pravega.test.common.TestUtils;
 import io.pravega.test.common.ThreadPooledTestSuite;
+
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -124,6 +126,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+
 import lombok.Cleanup;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -158,7 +161,6 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
     private static final int CONTAINER_ID = 1234567;
     private static final int EXPECTED_PINNED_SEGMENT_COUNT = 1;
     private static final long EXPECTED_METADATA_SEGMENT_ID = 1L;
-    private static final String EXPECTED_METADATA_SEGMENT_NAME = NameUtils.getMetadataSegmentName(CONTAINER_ID);
     private static final int MAX_DATA_LOG_APPEND_SIZE = 100 * 1024;
     private static final int TEST_TIMEOUT_MILLIS = 100 * 1000;
     private static final int EVICTION_SEGMENT_EXPIRATION_MILLIS_SHORT = 250; // Good for majority of tests.
@@ -1295,7 +1297,7 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
         val newAttributes = createAttributeUpdates(attributes);
         applyAttributes(newAttributes, expectedAttributes);
         localContainer.createStreamSegment(segmentName, newAttributes, TIMEOUT)
-                      .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
 
         sp = localContainer.getStreamSegmentInfo(segmentName, TIMEOUT).get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         expectedAttributes = Attributes.getCoreNonNullAttributes(expectedAttributes); // We expect extended attributes to be dropped in this case.
@@ -1834,7 +1836,7 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
     }
 
     private void checkReadIndex(Map<String, ByteArrayOutputStream> segmentContents, Map<String, Long> lengths,
-                                       TestContext context) throws Exception {
+                                TestContext context) throws Exception {
         checkReadIndex(segmentContents, lengths, Collections.emptyMap(), context);
     }
 
@@ -1876,11 +1878,17 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
         val initialActiveSegments = container.getActiveSegments();
         int ignoredSegments = 0;
         for (SegmentProperties sp : initialActiveSegments) {
-            if (sp.getName().equals(EXPECTED_METADATA_SEGMENT_NAME)) {
+            boolean match = false;
+            for (String systemSegment : SystemJournal.getChunkStorageSystemSegments(container.getId())) {
+                if (sp.getName().equals(systemSegment)) {
+                    match = true;
+                    break;
+                }
+            }
+            if (match) {
                 ignoredSegments++;
                 continue;
             }
-
             val expectedSp = container.getStreamSegmentInfo(sp.getName(), TIMEOUT).join();
             Assert.assertEquals("Unexpected length (from getActiveSegments) for segment " + sp.getName(), expectedSp.getLength(), sp.getLength());
             Assert.assertEquals("Unexpected sealed (from getActiveSegments) for segment " + sp.getName(), expectedSp.isSealed(), sp.isSealed());
@@ -2112,8 +2120,8 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
 
     private Collection<AttributeUpdate> createAttributeUpdates(UUID[] attributes) {
         return Arrays.stream(attributes)
-                     .map(a -> new AttributeUpdate(a, AttributeUpdateType.Replace, System.nanoTime()))
-                     .collect(Collectors.toList());
+                .map(a -> new AttributeUpdate(a, AttributeUpdateType.Replace, System.nanoTime()))
+                .collect(Collectors.toList());
     }
 
     private void applyAttributes(Collection<AttributeUpdate> updates, Map<UUID, Long> target) {
@@ -2129,8 +2137,8 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
     @SneakyThrows
     private void activateAllSegments(Collection<String> segmentNames, TestContext context) {
         val futures = segmentNames.stream()
-                                  .map(s -> activateSegment(s, context.container))
-                                  .collect(Collectors.toList());
+                .map(s -> activateSegment(s, context.container))
+                .collect(Collectors.toList());
         Futures.allOf(futures).get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
     }
 
@@ -2157,8 +2165,8 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
                     rre.requestContent(TIMEOUT);
                     return rre.getContent().thenRun(rr::close);
                 })
-                 .thenCompose(v -> container.deleteStreamSegment(segmentName, timer.getRemaining()))
-                 .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                .thenCompose(v -> container.deleteStreamSegment(segmentName, timer.getRemaining()))
+                .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
 
     }
 
@@ -2417,7 +2425,7 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
             @Override
             public CompletableFuture<Void> truncate(SegmentHandle handle, long offset, Duration timeout) {
                 return super.truncate(handle, offset, timeout)
-                            .thenRun(() -> truncationOffsets.put(handle.getSegmentName(), offset));
+                        .thenRun(() -> truncationOffsets.put(handle.getSegmentName(), offset));
             }
         }
     }
