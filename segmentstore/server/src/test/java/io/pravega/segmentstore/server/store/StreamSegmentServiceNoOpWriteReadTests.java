@@ -60,9 +60,9 @@ public class StreamSegmentServiceNoOpWriteReadTests extends StreamSegmentStoreTe
     }
 
     @Override
-    protected ServiceBuilder createBuilder(ServiceBuilderConfig.Builder builderConfig, int instanceId) {
+    protected ServiceBuilder createBuilder(ServiceBuilderConfig.Builder builderConfig, int instanceId, boolean useChunkStorage) {
         return ServiceBuilder.newInMemoryBuilder(builderConfig.build())
-                             .withStorageFactory(setup -> this.storageFactory)
-                             .withDataLogFactory(setup -> this.durableDataLogFactory);
+                .withStorageFactory(setup -> this.storageFactory)
+                .withDataLogFactory(setup -> this.durableDataLogFactory);
     }
 }

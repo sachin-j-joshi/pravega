@@ -64,6 +64,7 @@ import io.pravega.segmentstore.server.logs.operations.UpdateAttributesOperation;
 import io.pravega.segmentstore.server.tables.ContainerTableExtension;
 import io.pravega.segmentstore.storage.Storage;
 import io.pravega.segmentstore.storage.StorageFactory;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -79,6 +80,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+
+import io.pravega.segmentstore.storage.chunklayer.ChunkedSegmentStorage;
+import io.pravega.segmentstore.storage.metadata.TableBasedMetadataStore;
+import io.pravega.shared.NameUtils;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
@@ -123,7 +128,7 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
      * @param attributeIndexFactory    The AttributeIndexFactory to use to create Attribute Indices.
      * @param writerFactory            The WriterFactory to use to create Writers.
      * @param storageFactory           The StorageFactory to use to create Storage Adapters.
-     * @param createExtensions            A Function that, given an instance of this class, will create the set of
+     * @param createExtensions         A Function that, given an instance of this class, will create the set of
      *                                 {@link SegmentContainerExtension}s to be associated with that instance.
      * @param executor                 An Executor that can be used to run async tasks.
      */
@@ -175,6 +180,64 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
         ImmutableList.Builder<WriterSegmentProcessor> builder = ImmutableList.builder();
         this.extensions.values().forEach(p -> builder.addAll(p.createWriterSegmentProcessors(segmentMetadata)));
         return builder.build();
+    }
+
+    /**
+     * Initializes storage.
+     *
+     * @throws Exception
+     */
+    private void initializeStorage() throws Exception {
+        this.storage.initialize(this.metadata.getContainerEpoch());
+
+        if (this.storage instanceof ChunkedSegmentStorage) {
+            ChunkedSegmentStorage storageManager = (ChunkedSegmentStorage) this.storage;
+
+            // Initialize storage metadata table segment
+            ContainerTableExtension tableExtension = getExtension(ContainerTableExtension.class);
+            Preconditions.checkNotNull(tableExtension);
+            String s = NameUtils.getStorageMetadataSegmentName(this.metadata.getContainerId());
+
+            val metadata = new TableBasedMetadataStore(s, tableExtension);
+
+            // Bootstrap
+            storageManager.bootstrap(this.metadata.getContainerId(), metadata);
+        }
+    }
+
+    /**
+     * Initializes container metadata from storage.
+     *
+     * @throws Exception
+     */
+    private void updateStorageMetadata() throws Exception {
+        if (this.storage instanceof ChunkedSegmentStorage) {
+            ChunkedSegmentStorage storageProvider = (ChunkedSegmentStorage) this.storage;
+
+            // Reflect this in container metadata,
+            for (String systemSegment : storageProvider.getSystemJournal().getSystemSegments()) {
+                val ssm = this.metadata.getStreamSegmentMetadata(this.metadata.getStreamSegmentId(systemSegment, false));
+                if (null != ssm) {
+                    Preconditions.checkState(!ssm.isDeleted());
+                    log.debug("STORAGE BOOT:Updating system segment {}.", systemSegment);
+                    try (val txn = storageProvider.getMetadataStore().beginTransaction()) {
+                        val segmentMetadata = (io.pravega.segmentstore.storage.metadata.SegmentMetadata) storageProvider.getMetadataStore().get(txn, systemSegment);
+                        Preconditions.checkState(segmentMetadata != null);
+                        val length = segmentMetadata.getLength();
+                        log.debug("STORAGE BOOT: Setting storage length for system segment {} to {}.", systemSegment, length);
+                        ssm.setStorageLength(length);
+                        if (length > ssm.getLength()) {
+                            log.debug("STORAGE BOOT: Setting segment length for system segment {} to {}. (Was {})", systemSegment, length, ssm.getLength());
+                            ssm.setLength(length);
+                        }
+                        if (segmentMetadata.getStartOffset() != ssm.getStartOffset()) {
+                            log.debug("STORAGE BOOT: Setting segment startOffset for system segment {} to {}. (Was {})", systemSegment, length, ssm.getLength());
+                            ssm.setStartOffset(segmentMetadata.getStartOffset());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     //endregion
@@ -253,11 +316,20 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
     }
 
     private CompletableFuture<Void> initializeSecondaryServices() {
-        this.storage.initialize(this.metadata.getContainerEpoch());
+        try {
+            initializeStorage();
+        } catch (Exception ex) {
+            doStop(ex);
+        }
         return this.metadataStore.initialize(this.config.getMetadataStoreInitTimeout());
     }
 
     private CompletableFuture<Void> startSecondaryServicesAsync() {
+        try {
+            updateStorageMetadata();
+        } catch (Exception ex) {
+            doStop(ex);
+        }
         return CompletableFuture.allOf(
                 Services.startAsync(this.metadataCleaner, this.executor),
                 Services.startAsync(this.writer, this.executor));
@@ -515,14 +587,14 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
                     log.debug("{}: Deleting empty source segment instead of merging {}.", this.traceObjectId, sourceMetadata.getName());
                     return deleteStreamSegment(sourceMetadata.getName(), timer.getRemaining()).thenApply(v2 -> {
                         return new MergeStreamSegmentResult(this.metadata.getStreamSegmentMetadata(targetSegmentId).getLength(),
-                                                            sourceMetadata.getLength(), sourceMetadata.getAttributes());
+                                sourceMetadata.getLength(), sourceMetadata.getAttributes());
                     });
                 } else {
                     // Source now has some data - we must merge the two.
                     MergeSegmentOperation operation = new MergeSegmentOperation(targetSegmentId, sourceSegmentId);
                     return this.durableLog.add(operation, timer.getRemaining()).thenApply(v2 -> {
                         return new MergeStreamSegmentResult(operation.getStreamSegmentOffset() + operation.getLength(),
-                                                            operation.getLength(), sourceMetadata.getAttributes());
+                                operation.getLength(), sourceMetadata.getAttributes());
                     });
                 }
             }, this.executor);
@@ -531,10 +603,10 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
             // the Merge right after the Seal.
             MergeSegmentOperation operation = new MergeSegmentOperation(targetSegmentId, sourceSegmentId);
             return CompletableFuture.allOf(sealResult,
-                                           this.durableLog.add(operation, timer.getRemaining())).thenApply(v2 -> {
-                                               return new MergeStreamSegmentResult(operation.getStreamSegmentOffset() + operation.getLength(),
-                                                                                   operation.getLength(), sourceMetadata.getAttributes());
-                                           });
+                    this.durableLog.add(operation, timer.getRemaining())).thenApply(v2 -> {
+                return new MergeStreamSegmentResult(operation.getStreamSegmentOffset() + operation.getLength(),
+                        operation.getLength(), sourceMetadata.getAttributes());
+            });
         }
     }
 
@@ -606,7 +678,7 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
     private CompletableFuture<Long> seal(long segmentId, Duration timeout) {
         StreamSegmentSealOperation operation = new StreamSegmentSealOperation(segmentId);
         return StreamSegmentContainer.this.durableLog.add(operation, timeout)
-                                                     .thenApply(seqNo -> operation.getStreamSegmentOffset());
+                .thenApply(seqNo -> operation.getStreamSegmentOffset());
     }
 
     private CompletableFuture<Void> truncate(long segmentId, long offset, Duration timeout) {
@@ -741,8 +813,8 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
                     // Insert a NULL_ATTRIBUTE_VALUE for each missing value.
                     Map<UUID, Long> allValues = new HashMap<>(extendedAttributes);
                     extendedAttributeIds.stream()
-                                        .filter(id -> !extendedAttributes.containsKey(id))
-                                        .forEach(id -> allValues.put(id, Attributes.NULL_ATTRIBUTE_VALUE));
+                            .filter(id -> !extendedAttributes.containsKey(id))
+                            .forEach(id -> allValues.put(id, Attributes.NULL_ATTRIBUTE_VALUE));
                     return allValues;
                 }, this.executor);
 
@@ -760,7 +832,7 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
                 // We need to make sure not to update attributes via updateAttributes() as that method may indirectly
                 // invoke this one again.
                 return this.durableLog.add(new UpdateAttributesOperation(segmentMetadata.getId(), updates), timer.getRemaining())
-                                      .thenApply(v -> extendedAttributes);
+                        .thenApply(v -> extendedAttributes);
             }, this.executor);
         }
 

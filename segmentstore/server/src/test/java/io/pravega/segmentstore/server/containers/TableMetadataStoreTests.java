@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  */
 package io.pravega.segmentstore.server.containers;
 
@@ -16,6 +16,7 @@ import io.pravega.shared.NameUtils;
 import io.pravega.test.common.AssertExtensions;
 import io.pravega.test.common.ErrorInjector;
 import io.pravega.test.common.IntentionalException;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -23,6 +24,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
 import lombok.Cleanup;
 import lombok.Getter;
 import lombok.SneakyThrows;
@@ -139,10 +141,10 @@ public class TableMetadataStoreTests extends MetadataStoreTestBase {
                 return ErrorInjector.throwAsyncExceptionIfNeeded(
                         this.getErrorInjectorAsync.get(),
                         () -> super.get(segmentName, keys, timeout)
-                                   .thenApply(result -> {
-                                       this.getCount.incrementAndGet();
-                                       return result;
-                                   }));
+                                .thenApply(result -> {
+                                    this.getCount.incrementAndGet();
+                                    return result;
+                                }));
             }
         }
     }

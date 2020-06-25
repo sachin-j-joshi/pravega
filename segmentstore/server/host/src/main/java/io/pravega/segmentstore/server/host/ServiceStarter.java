@@ -30,7 +30,9 @@ import io.pravega.segmentstore.storage.mocks.InMemoryDurableDataLogFactory;
 import io.pravega.shared.metrics.MetricsConfig;
 import io.pravega.shared.metrics.MetricsProvider;
 import io.pravega.shared.metrics.StatsProvider;
+
 import java.util.concurrent.atomic.AtomicReference;
+
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -114,11 +116,11 @@ public final class ServiceStarter {
         log.info(autoScalerConfig.toString());
 
         this.listener = new PravegaConnectionListener(this.serviceConfig.isEnableTls(), this.serviceConfig.isEnableTlsReload(),
-                                                      this.serviceConfig.getListeningIPAddress(),
-                                                      this.serviceConfig.getListeningPort(), service, tableStoreService,
-                                                      autoScaleMonitor.getStatsRecorder(), autoScaleMonitor.getTableSegmentStatsRecorder(),
-                                                      tokenVerifier, this.serviceConfig.getCertFile(), this.serviceConfig.getKeyFile(),
-                                                      this.serviceConfig.isReplyWithStackTraceOnError(), serviceBuilder.getLowPriorityExecutor());
+                this.serviceConfig.getListeningIPAddress(),
+                this.serviceConfig.getListeningPort(), service, tableStoreService,
+                autoScaleMonitor.getStatsRecorder(), autoScaleMonitor.getTableSegmentStatsRecorder(),
+                tokenVerifier, this.serviceConfig.getCertFile(), this.serviceConfig.getKeyFile(),
+                this.serviceConfig.isReplyWithStackTraceOnError(), serviceBuilder.getLowPriorityExecutor());
 
         this.listener.startListening();
         log.info("PravegaConnectionListener started successfully.");
@@ -176,8 +178,11 @@ public final class ServiceStarter {
     private void attachStorage(ServiceBuilder builder) {
         builder.withStorageFactory(setup -> {
             StorageLoader loader = new StorageLoader();
-            return loader.load(setup, this.serviceConfig.getStorageImplementation().toString(), setup.getStorageExecutor());
-
+            return loader.load(setup,
+                    this.serviceConfig.getStorageImplementation().toString(),
+                    this.serviceConfig.getStorageManager(),
+                    this.serviceConfig.getStorageLayout(),
+                    setup.getStorageExecutor());
         });
     }
 
