@@ -41,13 +41,12 @@ import org.apache.http.HttpStatus;
 
 import java.io.FileNotFoundException;
 import java.io.InputStream;
-import java.nio.file.AccessDeniedException;
 
 import java.util.SortedSet;
 import java.util.TreeSet;
 
 /**
- *  {@link ChunkStorage} for extended S3 based storage.
+ * {@link ChunkStorage} for extended S3 based storage.
  *
  * Each chunk is represented as a single Object on the underlying storage.
  *
@@ -112,13 +111,13 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to read from.
      * @return ChunkHandle A readable handle for the given chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
     protected ChunkHandle doOpenRead(String chunkName) throws ChunkStorageException, IllegalArgumentException {
         if (!checkExists(chunkName)) {
-            throw new ChunkNotFoundException(chunkName, "Chunk not found", new FileNotFoundException(chunkName));
+            throw new ChunkNotFoundException(chunkName, "Chunk not found");
         }
         return ChunkHandle.readHandle(chunkName);
     }
@@ -128,13 +127,13 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to write to or modify.
      * @return ChunkHandle A writable handle for the given chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
     protected ChunkHandle doOpenWrite(String chunkName) throws ChunkStorageException, IllegalArgumentException {
         if (!checkExists(chunkName)) {
-            throw new ChunkNotFoundException(chunkName, "Chunk not found", new FileNotFoundException(chunkName));
+            throw new ChunkNotFoundException(chunkName, "Chunk not found");
         }
         return ChunkHandle.writeHandle(chunkName);
     }
@@ -142,15 +141,15 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
     /**
      * Reads a range of bytes from the underlying storage object.
      *
-     * @param handle ChunkHandle of the storage object to read from.
-     * @param fromOffset Offset in the file from which to start reading.
-     * @param length Number of bytes to read.
-     * @param buffer Byte buffer to which data is copied.
+     * @param handle       ChunkHandle of the storage object to read from.
+     * @param fromOffset   Offset in the file from which to start reading.
+     * @param length       Number of bytes to read.
+     * @param buffer       Byte buffer to which data is copied.
      * @param bufferOffset Offset in the buffer at which to start copying read data.
      * @return int Number of bytes read.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws IllegalArgumentException If argument is invalid.
-     * @throws NullPointerException  If the parameter is null.
+     * @throws ChunkStorageException     Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws IllegalArgumentException  If argument is invalid.
+     * @throws NullPointerException      If the parameter is null.
      * @throws IndexOutOfBoundsException If the index is out of bounds.
      */
     @Override
@@ -162,16 +161,8 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
 
             try (InputStream reader = client.readObjectStream(config.getBucket(),
                     config.getPrefix() + handle.getChunkName(), Range.fromOffsetLength(fromOffset, length))) {
-                /*
-                 * TODO: This implementation assumes that if S3Client.readObjectStream returns null, then
-                 * the object does not exist and we throw StreamNotExistsException. The javadoc, however,
-                 * says that this call returns null in case of 304 and 412 responses. We need to
-                 * investigate what these responses mean precisely and react accordingly.
-                 *
-                 * See https://github.com/pravega/pravega/issues/1549
-                 */
                 if (reader == null) {
-                    throw new ChunkNotFoundException(handle.getChunkName(), "Chunk not found", new FileNotFoundException(handle.getChunkName()));
+                    throw new ChunkNotFoundException(handle.getChunkName(), "Chunk not found");
                 }
 
                 int bytesRead = StreamHelpers.readAll(reader, buffer, bufferOffset, length);
@@ -190,9 +181,9 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
      * @param handle ChunkHandle of the storage object to write to.
      * @param offset Offset in the file to start writing.
      * @param length Number of bytes to write.
-     * @param data An InputStream representing the data to write.
+     * @param data   An InputStream representing the data to write.
      * @return int Number of bytes written.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException     Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IndexOutOfBoundsException Throws IndexOutOfBoundsException in case of invalid index.
      */
     @Override
@@ -202,7 +193,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
             S3ObjectMetadata result = client.getObjectMetadata(config.getBucket(), config.getPrefix() + handle.getChunkName());
             client.putObject(this.config.getBucket(), this.config.getPrefix() + handle.getChunkName(),
                     Range.fromOffsetLength(offset, length), data);
-            return (int) length;
+            return length;
         } catch (Exception e) {
             throwException(handle.getChunkName(), "doWrite", e);
         }
@@ -212,9 +203,10 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
     /**
      * Concatenates two or more chunks using storage native  functionality. (Eg. Multipart upload.)
      *
-     * @param chunks Array of ConcatArgument objects containing info about existing chunks to be appended together. The chunks are appended in the same sequence the names are provided.
+     * @param chunks Array of ConcatArgument objects containing info about existing chunks to be appended together.
+     *               The chunks are appended in the same sequence the names are provided.
      * @return int Number of bytes concatenated.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
      * @throws UnsupportedOperationException If this operation is not supported by this provider.
      */
     @Override
@@ -274,7 +266,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
      * @param handle ChunkHandle of the storage object to truncate.
      * @param offset Offset to truncate to.
      * @return True if the object was truncated, false otherwise.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
      * @throws UnsupportedOperationException If this operation is not supported by this provider.
      */
     @Override
@@ -285,10 +277,10 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
     /**
      * Sets readonly attribute for the chunk.
      *
-     * @param handle ChunkHandle of the storage object.
+     * @param handle     ChunkHandle of the storage object.
      * @param isReadOnly True if chunk is set to be readonly.
      * @return True if the operation was successful, false otherwise.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
      * @throws UnsupportedOperationException If this operation is not supported by this provider.
      */
     @Override
@@ -316,11 +308,11 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
             String errorCode = Strings.nullToEmpty(s3Exception.getErrorCode());
 
             if (errorCode.equals("NoSuchKey")) {
-                throw new ChunkNotFoundException(chunkName, "Chunk not found");
+                throw new ChunkNotFoundException(chunkName, message);
             }
 
             if (errorCode.equals("PreconditionFailed")) {
-                throw new ChunkAlreadyExistsException(chunkName, "Chunk already exists");
+                throw new ChunkAlreadyExistsException(chunkName, message);
             }
 
             if (errorCode.equals("InvalidRange")
@@ -331,7 +323,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
             }
 
             if (errorCode.equals("AccessDenied")) {
-                throw new ChunkStorageException(chunkName, "Access denied", new AccessDeniedException(chunkName));
+                throw new ChunkStorageException(chunkName, String.format("Access denied for chunk %s - %s.", chunkName, message));
             }
         }
 
@@ -347,7 +339,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to read from.
      * @return ChunkInfo Information about the given chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -356,7 +348,6 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
             S3ObjectMetadata result = client.getObjectMetadata(config.getBucket(),
                     config.getPrefix() + chunkName);
 
-            AccessControlList acls = client.getObjectAcl(config.getBucket(), config.getPrefix() + chunkName);
             ChunkInfo information = ChunkInfo.builder()
                     .name(chunkName)
                     .length(result.getContentLength())
@@ -374,7 +365,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to create.
      * @return ChunkHandle A writable handle for the recently created chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -410,7 +401,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName Name of the storage object to check.
      * @return True if the object exists, false otherwise.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -432,7 +423,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
      * Deletes a file.
      *
      * @param handle ChunkHandle of the storage object to delete.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override

@@ -11,6 +11,7 @@ package io.pravega.storage.hdfs;
 
 import com.google.common.base.Preconditions;
 import io.pravega.common.Exceptions;
+
 import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -64,7 +65,7 @@ class HDFSChunkStorage extends BaseChunkStorage {
     /**
      * Creates a new instance of the HDFSStorage class.
      *
-     * @param config   The configuration to use.
+     * @param config The configuration to use.
      */
     HDFSChunkStorage(HDFSStorageConfig config) {
         Preconditions.checkNotNull(config, "config");
@@ -130,7 +131,7 @@ class HDFSChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to read from.
      * @return ChunkInfo Information about the given chunk.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
+     * @throws ChunkStorageException Throws IOException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -151,7 +152,7 @@ class HDFSChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to create.
      * @return ChunkHandle A writable handle for the recently created chunk.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
+     * @throws ChunkStorageException Throws IOException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -179,7 +180,7 @@ class HDFSChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName Name of the storage object to check.
      * @return True if the object exists, false otherwise.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
+     * @throws ChunkStorageException Throws IOException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -201,7 +202,7 @@ class HDFSChunkStorage extends BaseChunkStorage {
      *
      * @param handle ChunkHandle of the storage object to delete.
      * @return True if the object was deleted, false otherwise.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
+     * @throws ChunkStorageException Throws IOException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -226,7 +227,7 @@ class HDFSChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to read from.
      * @return ChunkHandle A readable handle for the given chunk.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
+     * @throws ChunkStorageException Throws IOException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -245,7 +246,7 @@ class HDFSChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to write to or modify.
      * @return ChunkHandle A writable handle for the given chunk.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
+     * @throws ChunkStorageException Throws IOException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -263,19 +264,20 @@ class HDFSChunkStorage extends BaseChunkStorage {
     /**
      * Reads a range of bytes from the underlying storage object.
      *
-     * @param handle ChunkHandle of the storage object to read from.
-     * @param fromOffset Offset in the file from which to start reading.
-     * @param length Number of bytes to read.
-     * @param buffer Byte buffer to which data is copied.
+     * @param handle       ChunkHandle of the storage object to read from.
+     * @param fromOffset   Offset in the file from which to start reading.
+     * @param length       Number of bytes to read.
+     * @param buffer       Byte buffer to which data is copied.
      * @param bufferOffset Offset in the buffer at which to start copying read data.
      * @return int Number of bytes read.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
-     * @throws IllegalArgumentException If argument is invalid.
-     * @throws NullPointerException  If the parameter is null.
+     * @throws ChunkStorageException Throws IOException in case of I/O related exceptions.
+     * @throws IllegalArgumentException  If argument is invalid.
+     * @throws NullPointerException      If the parameter is null.
      * @throws IndexOutOfBoundsException If the index is out of bounds.
      */
     @Override
-    protected int doRead(ChunkHandle handle, long fromOffset, int length, byte[] buffer, int bufferOffset) throws ChunkStorageException, NullPointerException, IndexOutOfBoundsException {
+    protected int doRead(ChunkHandle handle, long fromOffset, int length, byte[] buffer, int bufferOffset)
+            throws ChunkStorageException, NullPointerException, IndexOutOfBoundsException {
         ensureInitializedAndNotClosed();
         try {
 
@@ -299,9 +301,9 @@ class HDFSChunkStorage extends BaseChunkStorage {
      * @param handle ChunkHandle of the storage object to write to.
      * @param offset Offset in the file to start writing.
      * @param length Number of bytes to write.
-     * @param data An InputStream representing the data to write.
+     * @param data   An InputStream representing the data to write.
      * @return int Number of bytes written.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
+     * @throws ChunkStorageException Throws IOException in case of I/O related exceptions.
      * @throws IndexOutOfBoundsException Throws IndexOutOfBoundsException in case of invalid index.
      */
     @Override
@@ -375,10 +377,10 @@ class HDFSChunkStorage extends BaseChunkStorage {
     /**
      * Sets readonly attribute for the chunk.
      *
-     * @param handle ChunkHandle of the storage object.
+     * @param handle     ChunkHandle of the storage object.
      * @param isReadOnly True if chunk is set to be readonly.
      * @return True if the operation was successful, false otherwise.
-     * @throws IOException Throws IOException in case of I/O related exceptions.
+     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
      * @throws UnsupportedOperationException If this operation is not supported by this provider.
      */
     @Override
@@ -417,7 +419,7 @@ class HDFSChunkStorage extends BaseChunkStorage {
         log.info("Initialized (HDFSHost = '{}'", this.config.getHdfsHostURL());
     }
 
-    FileSystem openFileSystem(Configuration conf) throws IOException {
+    private FileSystem openFileSystem(Configuration conf) throws IOException {
         return FileSystem.get(conf);
     }
     //endregion

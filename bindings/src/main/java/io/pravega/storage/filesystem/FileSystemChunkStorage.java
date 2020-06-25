@@ -44,11 +44,10 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Set;
 
 /**
- *  {@link ChunkStorage} for file system based storage.
+ * {@link ChunkStorage} for file system based storage.
  *
  * Each Chunk is represented as a single file on the underlying storage.
  * The concat operation is implemented as append.
- *
  */
 
 @Slf4j
@@ -64,7 +63,7 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
     /**
      * Creates a new instance of the FileSystemChunkStorage class.
      *
-     * @param config   The configuration to use.
+     * @param config The configuration to use.
      */
     public FileSystemChunkStorage(FileSystemStorageConfig config) {
         this.config = Preconditions.checkNotNull(config, "config");
@@ -131,7 +130,7 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to read from.
      * @return ChunkInfo Information about the given chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -142,7 +141,6 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
             ChunkInfo information = ChunkInfo.builder()
                     .name(chunkName)
                     .length(attrs.size())
-                    //.lastModified(new ImmutableDate(attrs.creationTime().toMillis()))
                     .build();
 
             return information;
@@ -157,7 +155,7 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to create.
      * @return ChunkHandle A writable handle for the recently created chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -193,7 +191,7 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName Name of the storage object to check.
      * @return True if the object exists, false otherwise.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -205,7 +203,7 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
      * Deletes a file.
      *
      * @param handle ChunkHandle of the storage object to delete.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -222,7 +220,7 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to read from.
      * @return ChunkHandle A readable handle for the given chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -241,7 +239,7 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
      *
      * @param chunkName String name of the storage object to write to or modify.
      * @return ChunkHandle A writable handle for the given chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IllegalArgumentException If argument is invalid.
      */
     @Override
@@ -259,19 +257,20 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
     /**
      * Reads a range of bytes from the underlying storage object.
      *
-     * @param handle ChunkHandle of the storage object to read from.
-     * @param fromOffset Offset in the file from which to start reading.
-     * @param length Number of bytes to read.
-     * @param buffer Byte buffer to which data is copied.
+     * @param handle       ChunkHandle of the storage object to read from.
+     * @param fromOffset   Offset in the file from which to start reading.
+     * @param length       Number of bytes to read.
+     * @param buffer       Byte buffer to which data is copied.
      * @param bufferOffset Offset in the buffer at which to start copying read data.
      * @return int Number of bytes read.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws IllegalArgumentException If argument is invalid.
-     * @throws NullPointerException  If the parameter is null.
+     * @throws ChunkStorageException     Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws IllegalArgumentException  If argument is invalid.
+     * @throws NullPointerException      If the parameter is null.
      * @throws IndexOutOfBoundsException If the index is out of bounds.
      */
     @Override
-    protected int doRead(ChunkHandle handle, long fromOffset, int length, byte[] buffer, int bufferOffset) throws ChunkStorageException, NullPointerException, IndexOutOfBoundsException {
+    protected int doRead(ChunkHandle handle, long fromOffset, int length, byte[] buffer, int bufferOffset)
+            throws ChunkStorageException, NullPointerException, IndexOutOfBoundsException {
         Timer timer = new Timer();
 
         Path path = Paths.get(config.getRoot(), handle.getChunkName());
@@ -309,9 +308,9 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
      * @param handle ChunkHandle of the storage object to write to.
      * @param offset Offset in the file to start writing.
      * @param length Number of bytes to write.
-     * @param data An InputStream representing the data to write.
+     * @param data   An InputStream representing the data to write.
      * @return int Number of bytes written.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException     Throws ChunkStorageException in case of I/O related exceptions.
      * @throws IndexOutOfBoundsException Throws IndexOutOfBoundsException in case of invalid index.
      */
     @Override
@@ -351,9 +350,10 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
     /**
      * Concatenates two or more chunks using appends.
      *
-     * @param chunks Array of ConcatArgument objects containing info about existing chunks to be appended together. The chunks are appended in the same sequence the names are provided.
+     * @param chunks Array of ConcatArgument objects containing info about existing chunks to be appended together.
+     *               The chunks are appended in the same sequence the names are provided.
      * @return int Number of bytes concatenated.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
      * @throws UnsupportedOperationException If this operation is not supported by this provider.
      */
     @Override
@@ -397,7 +397,7 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
      * @param handle ChunkHandle of the storage object to truncate.
      * @param offset Offset to truncate to.
      * @return True if the object was truncated, false otherwise.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
      * @throws UnsupportedOperationException If this operation is not supported by this provider.
      */
     @Override
@@ -408,10 +408,10 @@ public class FileSystemChunkStorage extends BaseChunkStorage {
     /**
      * Sets readonly attribute for the chunk.
      *
-     * @param handle ChunkHandle of the storage object.
+     * @param handle     ChunkHandle of the storage object.
      * @param isReadOnly True if chunk is set to be readonly.
      * @return True if the operation was successful, false otherwise.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
      * @throws UnsupportedOperationException If this operation is not supported by this provider.
      */
     @Override

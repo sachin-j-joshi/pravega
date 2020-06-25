@@ -35,7 +35,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.mock;
 
-public class FileSystemChunkProviderMockTest {
+/**
+ * Unit tests for {@link FileSystemChunkStorage} that uses mocks.
+ */
+public class FileSystemChunkStorageMockTest {
     static final Duration TIMEOUT = Duration.ofSeconds(30);
     @Rule
     public Timeout globalTimeout = Timeout.seconds(TIMEOUT.getSeconds());
