@@ -9,7 +9,7 @@
  */
 package io.pravega.storage.extendeds3;
 
-import io.pravega.segmentstore.storage.chunklayer.ChunkManagerRollingTests;
+import io.pravega.segmentstore.storage.chunklayer.ChunkedRollingStorageTests;
 import io.pravega.segmentstore.storage.chunklayer.ChunkStorage;
 import io.pravega.segmentstore.storage.chunklayer.ChunkStorageTests;
 import io.pravega.segmentstore.storage.chunklayer.SimpleStorageTests;
@@ -47,9 +47,9 @@ public class ExtendedS3SimpleStorageTests extends SimpleStorageTests {
     }
 
     /**
-     * {@link ChunkManagerRollingTests} tests for {@link ExtendedS3ChunkStorage} based {@link io.pravega.segmentstore.storage.Storage}.
+     * {@link ChunkedRollingStorageTests} tests for {@link ExtendedS3ChunkStorage} based {@link io.pravega.segmentstore.storage.Storage}.
      */
-    public static class ExtendedS3StorageProviderRollingTests extends ChunkManagerRollingTests {
+    public static class ExtendedS3StorageProviderRollingTests extends ChunkedRollingStorageTests {
         private ExtendedS3TestContext testContext = null;
 
         @Before

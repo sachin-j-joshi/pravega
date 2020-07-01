@@ -10,7 +10,7 @@
 package io.pravega.storage.hdfs;
 
 import io.pravega.common.io.FileHelpers;
-import io.pravega.segmentstore.storage.chunklayer.ChunkManagerRollingTests;
+import io.pravega.segmentstore.storage.chunklayer.ChunkedRollingStorageTests;
 import io.pravega.segmentstore.storage.chunklayer.ChunkStorage;
 import io.pravega.segmentstore.storage.chunklayer.ChunkStorageTests;
 import io.pravega.segmentstore.storage.chunklayer.SimpleStorageTests;
@@ -54,9 +54,9 @@ public class HDFSSimpleStorageTest extends SimpleStorageTests {
     }
 
     /**
-     * {@link ChunkManagerRollingTests} tests for {@link HDFSChunkStorage} based {@link io.pravega.segmentstore.storage.Storage}.
+     * {@link ChunkedRollingStorageTests} tests for {@link HDFSChunkStorage} based {@link io.pravega.segmentstore.storage.Storage}.
      */
-    public static class HDFSRollingTests extends ChunkManagerRollingTests {
+    public static class HDFSRollingTests extends ChunkedRollingStorageTests {
         @Rule
         public Timeout globalTimeout = Timeout.seconds(TIMEOUT.getSeconds());
         private TestContext testContext = new TestContext();

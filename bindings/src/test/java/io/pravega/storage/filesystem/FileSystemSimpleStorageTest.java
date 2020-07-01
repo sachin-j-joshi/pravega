@@ -9,7 +9,7 @@
  */
 package io.pravega.storage.filesystem;
 
-import io.pravega.segmentstore.storage.chunklayer.ChunkManagerRollingTests;
+import io.pravega.segmentstore.storage.chunklayer.ChunkedRollingStorageTests;
 import io.pravega.segmentstore.storage.chunklayer.ChunkStorage;
 import io.pravega.segmentstore.storage.chunklayer.ChunkStorageTests;
 import io.pravega.segmentstore.storage.chunklayer.SimpleStorageTests;
@@ -39,9 +39,9 @@ public class FileSystemSimpleStorageTest extends SimpleStorageTests {
     }
 
     /**
-     * {@link ChunkManagerRollingTests} tests for {@link FileSystemChunkStorage} based {@link io.pravega.segmentstore.storage.Storage}.
+     * {@link ChunkedRollingStorageTests} tests for {@link FileSystemChunkStorage} based {@link io.pravega.segmentstore.storage.Storage}.
      */
-    public static class FileSystemRollingTests extends ChunkManagerRollingTests {
+    public static class FileSystemRollingTests extends ChunkedRollingStorageTests {
         protected ChunkStorage getChunkStorage()  throws Exception {
             return newChunkStorage();
         }
