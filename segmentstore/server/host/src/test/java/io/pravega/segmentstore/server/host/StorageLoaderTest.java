@@ -84,6 +84,7 @@ public class StorageLoaderTest {
         builder.close();
     }
 
+    @Ignore
     @Test
     public void testSimpleFileSystemStorage() throws Exception {
         val storageType = ServiceConfig.StorageType.FILESYSTEM;
@@ -104,6 +105,7 @@ public class StorageLoaderTest {
         builder.close();
     }
 
+    @Ignore
     @Test
     public void testHDFSSimpleStorage() throws Exception {
         val storageType = ServiceConfig.StorageType.HDFS;
