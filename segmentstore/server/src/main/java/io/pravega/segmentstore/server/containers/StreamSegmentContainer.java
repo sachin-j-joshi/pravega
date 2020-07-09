@@ -326,7 +326,7 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
 
     private CompletableFuture<Void> startSecondaryServicesAsync() {
         try {
-            updateStorageMetadata();
+            //updateStorageMetadata();
         } catch (Exception ex) {
             doStop(ex);
         }
