@@ -79,8 +79,8 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
 
     // Even though this should work with just 1-2 threads, doing so would cause this test to run for a long time. Choosing
     // a decent size so that the tests do finish up within a few seconds.
-    private static final int THREADPOOL_SIZE_SEGMENT_STORE = 20;
-    private static final int THREADPOOL_SIZE_SEGMENT_STORE_STORAGE = 10;
+    private static final int THREADPOOL_SIZE_SEGMENT_STORE = 200;
+    private static final int THREADPOOL_SIZE_SEGMENT_STORE_STORAGE = 100;
     private static final int THREADPOOL_SIZE_TEST = 3;
     private static final String EMPTY_SEGMENT_NAME = "Empty_Segment";
     private static final int SEGMENT_COUNT = 10;
@@ -90,7 +90,7 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
     private static final int MAX_INSTANCE_COUNT = 4;
     private static final List<UUID> ATTRIBUTES = Streams.concat(Stream.of(Attributes.EVENT_COUNT), IntStream.range(0, 10).mapToObj(i -> UUID.randomUUID())).collect(Collectors.toList());
     private static final int ATTRIBUTE_UPDATE_DELTA = APPENDS_PER_SEGMENT + ATTRIBUTE_UPDATES_PER_SEGMENT;
-    private static final Duration TIMEOUT = Duration.ofSeconds(120);
+    private static final Duration TIMEOUT = Duration.ofSeconds(3* 120);
 
     protected final ServiceBuilderConfig.Builder configBuilder = ServiceBuilderConfig
             .builder()
@@ -180,7 +180,7 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
      */
     @Test
     public void testEndToEndWithChunkManager() throws Exception {
-        endToEndProcess(false, true);
+        endToEndProcess(true, true);
     }
 
     /**
@@ -683,7 +683,6 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
             // StreamSegmentNotExistsException.
             // This is gracefully handled by retries in AppendProcessor and/or Client, but in this case, we simply have to
             // do the retries ourselves, hoping that the callback eventually executes.
-            /*
             Retry.withExpBackoff(100, 2, 10, TIMEOUT.toMillis() / 5)
                  .retryWhen(ex -> Exceptions.unwrap(ex) instanceof StreamSegmentNotExistsException || info.get().getLength() != info.get().getStorageLength())
                  .run(() -> {
@@ -691,12 +690,11 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
                      try {
                          checkSegmentReads(segmentName, expectedCurrentOffset, info.get().getLength(), store, expectedData);
                      } catch (Exception ex2) {
-                         log.debug("", ex2);
+                         log.debug("Exception during checkReads", ex2);
                      }
                      info.set(latestInfo);
                      return null;
                  });
-            */
         }
     }
 

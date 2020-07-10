@@ -325,11 +325,6 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
     }
 
     private CompletableFuture<Void> startSecondaryServicesAsync() {
-        try {
-            //updateStorageMetadata();
-        } catch (Exception ex) {
-            doStop(ex);
-        }
         return CompletableFuture.allOf(
                 Services.startAsync(this.metadataCleaner, this.executor),
                 Services.startAsync(this.writer, this.executor));
