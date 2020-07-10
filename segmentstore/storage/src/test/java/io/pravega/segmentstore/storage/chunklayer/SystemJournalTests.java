@@ -32,6 +32,7 @@ import org.junit.rules.Timeout;
 import java.io.ByteArrayInputStream;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.concurrent.CompletionException;
 
 /**
  * Tests for testing bootstrap functionality with {@link SystemJournal}.
@@ -395,8 +396,7 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
             if (null != oldhunkStorageManager) {
                 try {
                     oldhunkStorageManager.write(oldHandle, oldOffset + 4, new ByteArrayInputStream("junk".getBytes()), 4, null).join();
-                }
-                catch (Exception e){
+                } catch (CompletionException e) {
 
                 }
 

@@ -700,7 +700,6 @@ public class ChunkedSegmentStorage implements Storage {
                 readIndexCache.remove(sourceSegment);
                 checkChunksExist(txn, targetSegmentMetadata);
 
-
                 Duration elapsed = timer.getElapsed();
                 log.debug("{} concat - target={}, source={}, offset={}, latency={}.", logPrefix, targetHandle.getSegmentName(), sourceSegment, offset, elapsed.toMillis());
                 LoggerHelpers.traceLeave(log, "concat", traceId, targetHandle, offset, sourceSegment);
@@ -1317,7 +1316,7 @@ public class ChunkedSegmentStorage implements Storage {
         Preconditions.checkState(!closed.get());
     }
 
-    private void checkChunksExist(MetadataTransaction txn, SegmentMetadata segmentMetadata) throws StorageMetadataException , ChunkStorageException {
+    private void checkChunksExist(MetadataTransaction txn, SegmentMetadata segmentMetadata) throws StorageMetadataException, ChunkStorageException {
         String current = segmentMetadata.getFirstChunk();
         ArrayList<ChunkMetadata> list = new ArrayList<>();
         while (null != current) {

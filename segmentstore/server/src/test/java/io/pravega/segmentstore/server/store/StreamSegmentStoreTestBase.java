@@ -90,7 +90,7 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
     private static final int MAX_INSTANCE_COUNT = 4;
     private static final List<UUID> ATTRIBUTES = Streams.concat(Stream.of(Attributes.EVENT_COUNT), IntStream.range(0, 10).mapToObj(i -> UUID.randomUUID())).collect(Collectors.toList());
     private static final int ATTRIBUTE_UPDATE_DELTA = APPENDS_PER_SEGMENT + ATTRIBUTE_UPDATES_PER_SEGMENT;
-    private static final Duration TIMEOUT = Duration.ofSeconds(3* 120);
+    private static final Duration TIMEOUT = Duration.ofSeconds(120);
 
     protected final ServiceBuilderConfig.Builder configBuilder = ServiceBuilderConfig
             .builder()
@@ -264,8 +264,11 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
             val segmentStore = builder.createStreamSegmentService();
             checkReads(segmentContents, segmentStore);
             log.info("Finished checking reads.");
+        }
 
-            if (verifySegmentContent) {
+        if (verifySegmentContent) {
+            try (val builder = createBuilder(++instanceId, useChunkStorage);) {
+                val segmentStore = builder.createStreamSegmentService();
                 // Wait for all the data to move to Storage.
                 waitForSegmentsInStorage(segmentNames, segmentStore)
                         .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
@@ -273,7 +276,10 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
 
                 checkStorage(segmentContents, segmentStore);
                 log.info("Finished Storage check.");
+            }
 
+            try (val builder = createBuilder(++instanceId, useChunkStorage);) {
+                val segmentStore = builder.createStreamSegmentService();
                 checkReadsWhileTruncating(segmentContents, startOffsets, segmentStore);
                 log.info("Finished checking reads while truncating.");
 
@@ -291,13 +297,20 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
             log.info("Finished sealing.");
 
             checkSegmentStatus(lengths, startOffsets, true, false, expectedAttributeValue, segmentStore);
+        }
 
-            if (verifySegmentContent) {
+        /*
+        if (verifySegmentContent) {
+            try (val builder = createBuilder(++instanceId, useChunkStorage)) {
+                val segmentStore = builder.createStreamSegmentService();
                 waitForSegmentsInStorage(segmentNames, segmentStore)
                         .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
                 log.info("Finished waiting for segments in Storage.");
             }
+        }*/
 
+        try (val builder = createBuilder(++instanceId, useChunkStorage)) {
+            val segmentStore = builder.createStreamSegmentService();
             // Deletes.
             deleteSegments(segmentNames, segmentStore).join();
             log.info("Finished deleting segments.");
@@ -955,11 +968,10 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
                                 */
 
                                 if (sp.isSealed()) {
-                                    tryAgain.set(!storageProps.isSealedInStorage());// || !(attrProps.isSealed() || attrProps.isDeleted()));
+                                    tryAgain.set(!storageProps.isSealedInStorage()); // || !(attrProps.isSealed() || attrProps.isDeleted()));
                                 } else {
                                     tryAgain.set(sp.getLength() != storageProps.getStorageLength());
                                 }
-
 
                                 if (tryAgain.get() && !timer.hasRemaining()) {
                                     return Futures.<Void>failedFuture(new TimeoutException(
