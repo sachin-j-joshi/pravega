@@ -393,7 +393,13 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
 
             //Add some garbage
             if (null != oldhunkStorageManager) {
-                oldhunkStorageManager.write(oldHandle, oldOffset + 4, new ByteArrayInputStream("junk".getBytes()), 4, null).join();
+                try {
+                    oldhunkStorageManager.write(oldHandle, oldOffset + 4, new ByteArrayInputStream("junk".getBytes()), 4, null).join();
+                }
+                catch (Exception e){
+
+                }
+
             }
 
             // Save these instances so that you can write some junk after bootstrap.

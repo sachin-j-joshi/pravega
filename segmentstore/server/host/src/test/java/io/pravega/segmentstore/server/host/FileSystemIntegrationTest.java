@@ -16,12 +16,14 @@ import io.pravega.segmentstore.storage.impl.bookkeeper.BookKeeperLogFactory;
 import io.pravega.storage.filesystem.FileSystemSimpleStorageFactory;
 import io.pravega.storage.filesystem.FileSystemStorageConfig;
 import io.pravega.storage.filesystem.FileSystemStorageFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.After;
 import org.junit.Before;
 
 /**
  * End-to-end tests for SegmentStore, with integrated Storage and DurableDataLog.
  */
+@Slf4j
 public class FileSystemIntegrationTest extends BookKeeperIntegrationTestBase {
     /**
      * Starts BookKeeper.

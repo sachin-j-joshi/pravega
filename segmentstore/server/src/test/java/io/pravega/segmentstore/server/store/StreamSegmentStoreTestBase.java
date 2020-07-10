@@ -943,6 +943,8 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
                             .thenCompose(v -> {
                                 StreamSegmentInformation storageProps = (StreamSegmentInformation) segInfo.join();
                                 StreamSegmentInformation attrProps = (StreamSegmentInformation) attrInfo.join();
+
+                                /*
                                 if (sp.isDeleted()) {
                                     tryAgain.set(!storageProps.isDeletedInStorage());
                                 } else if (sp.isSealed()) {
@@ -950,6 +952,14 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
                                 } else {
                                     tryAgain.set(sp.getLength() != storageProps.getStorageLength());
                                 }
+                                */
+
+                                if (sp.isSealed()) {
+                                    tryAgain.set(!storageProps.isSealedInStorage());// || !(attrProps.isSealed() || attrProps.isDeleted()));
+                                } else {
+                                    tryAgain.set(sp.getLength() != storageProps.getStorageLength());
+                                }
+
 
                                 if (tryAgain.get() && !timer.hasRemaining()) {
                                     return Futures.<Void>failedFuture(new TimeoutException(
