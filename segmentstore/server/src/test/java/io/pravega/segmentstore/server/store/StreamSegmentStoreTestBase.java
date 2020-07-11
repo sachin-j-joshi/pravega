@@ -298,7 +298,6 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
 
             checkSegmentStatus(lengths, startOffsets, true, false, expectedAttributeValue, segmentStore);
             //}
-
             if (verifySegmentContent) {
                 //try (val builder = createBuilder(++instanceId, useChunkStorage)) {
                 //    val segmentStore = builder.createStreamSegmentService();
