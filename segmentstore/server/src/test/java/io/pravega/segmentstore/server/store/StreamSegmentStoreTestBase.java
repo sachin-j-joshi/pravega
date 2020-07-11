@@ -276,10 +276,10 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
 
                 checkStorage(segmentContents, segmentStore);
                 log.info("Finished Storage check.");
-            }
+                //}
 
-            try (val builder = createBuilder(++instanceId, useChunkStorage);) {
-                val segmentStore = builder.createStreamSegmentService();
+                //try (val builder = createBuilder(++instanceId, useChunkStorage);) {
+                //    val segmentStore = builder.createStreamSegmentService();
                 checkReadsWhileTruncating(segmentContents, startOffsets, segmentStore);
                 log.info("Finished checking reads while truncating.");
 
@@ -297,17 +297,16 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
             log.info("Finished sealing.");
 
             checkSegmentStatus(lengths, startOffsets, true, false, expectedAttributeValue, segmentStore);
-        }
+            //}
 
-        /*
-        if (verifySegmentContent) {
-            try (val builder = createBuilder(++instanceId, useChunkStorage)) {
-                val segmentStore = builder.createStreamSegmentService();
+            if (verifySegmentContent) {
+                //try (val builder = createBuilder(++instanceId, useChunkStorage)) {
+                //    val segmentStore = builder.createStreamSegmentService();
                 waitForSegmentsInStorage(segmentNames, segmentStore)
                         .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
                 log.info("Finished waiting for segments in Storage.");
             }
-        }*/
+        }
 
         try (val builder = createBuilder(++instanceId, useChunkStorage)) {
             val segmentStore = builder.createStreamSegmentService();
