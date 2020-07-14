@@ -79,8 +79,8 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
 
     // Even though this should work with just 1-2 threads, doing so would cause this test to run for a long time. Choosing
     // a decent size so that the tests do finish up within a few seconds.
-    private static final int THREADPOOL_SIZE_SEGMENT_STORE = 20;
-    private static final int THREADPOOL_SIZE_SEGMENT_STORE_STORAGE = 10;
+    private static final int THREADPOOL_SIZE_SEGMENT_STORE = 200;
+    private static final int THREADPOOL_SIZE_SEGMENT_STORE_STORAGE = 100;
     private static final int THREADPOOL_SIZE_TEST = 3;
     private static final String EMPTY_SEGMENT_NAME = "Empty_Segment";
     private static final int SEGMENT_COUNT = 10;
@@ -264,8 +264,11 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
             val segmentStore = builder.createStreamSegmentService();
             checkReads(segmentContents, segmentStore);
             log.info("Finished checking reads.");
+        }
 
-            if (verifySegmentContent) {
+        if (verifySegmentContent) {
+            try (val builder = createBuilder(++instanceId, useChunkStorage);) {
+                val segmentStore = builder.createStreamSegmentService();
                 // Wait for all the data to move to Storage.
                 waitForSegmentsInStorage(segmentNames, segmentStore)
                         .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
@@ -273,7 +276,10 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
 
                 checkStorage(segmentContents, segmentStore);
                 log.info("Finished Storage check.");
+                //}
 
+                //try (val builder = createBuilder(++instanceId, useChunkStorage);) {
+                //    val segmentStore = builder.createStreamSegmentService();
                 checkReadsWhileTruncating(segmentContents, startOffsets, segmentStore);
                 log.info("Finished checking reads while truncating.");
 
@@ -291,13 +297,18 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
             log.info("Finished sealing.");
 
             checkSegmentStatus(lengths, startOffsets, true, false, expectedAttributeValue, segmentStore);
-
+            //}
             if (verifySegmentContent) {
+                //try (val builder = createBuilder(++instanceId, useChunkStorage)) {
+                //    val segmentStore = builder.createStreamSegmentService();
                 waitForSegmentsInStorage(segmentNames, segmentStore)
                         .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
                 log.info("Finished waiting for segments in Storage.");
             }
+        }
 
+        try (val builder = createBuilder(++instanceId, useChunkStorage)) {
+            val segmentStore = builder.createStreamSegmentService();
             // Deletes.
             deleteSegments(segmentNames, segmentStore).join();
             log.info("Finished deleting segments.");
@@ -683,7 +694,6 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
             // StreamSegmentNotExistsException.
             // This is gracefully handled by retries in AppendProcessor and/or Client, but in this case, we simply have to
             // do the retries ourselves, hoping that the callback eventually executes.
-            /*
             Retry.withExpBackoff(100, 2, 10, TIMEOUT.toMillis() / 5)
                  .retryWhen(ex -> Exceptions.unwrap(ex) instanceof StreamSegmentNotExistsException || info.get().getLength() != info.get().getStorageLength())
                  .run(() -> {
@@ -691,12 +701,11 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
                      try {
                          checkSegmentReads(segmentName, expectedCurrentOffset, info.get().getLength(), store, expectedData);
                      } catch (Exception ex2) {
-                         log.debug("", ex2);
+                         log.debug("Exception during checkReads", ex2);
                      }
                      info.set(latestInfo);
                      return null;
                  });
-            */
         }
     }
 
@@ -945,10 +954,19 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
                             .thenCompose(v -> {
                                 StreamSegmentInformation storageProps = (StreamSegmentInformation) segInfo.join();
                                 StreamSegmentInformation attrProps = (StreamSegmentInformation) attrInfo.join();
+
+                                /*
                                 if (sp.isDeleted()) {
                                     tryAgain.set(!storageProps.isDeletedInStorage());
                                 } else if (sp.isSealed()) {
                                     tryAgain.set(!storageProps.isSealedInStorage());
+                                } else {
+                                    tryAgain.set(sp.getLength() != storageProps.getStorageLength());
+                                }
+                                */
+
+                                if (sp.isSealed()) {
+                                    tryAgain.set(!storageProps.isSealedInStorage()); // || !(attrProps.isSealed() || attrProps.isDeleted()));
                                 } else {
                                     tryAgain.set(sp.getLength() != storageProps.getStorageLength());
                                 }
