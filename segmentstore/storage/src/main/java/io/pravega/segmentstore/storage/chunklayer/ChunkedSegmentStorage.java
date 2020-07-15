@@ -456,7 +456,8 @@ public class ChunkedSegmentStorage implements Storage {
                 }
 
                 // if layout did not change then commit with lazyWrite.
-                txn.commit(!didSegmentLayoutChange);
+                //txn.commit(!didSegmentLayoutChange);
+                txn.commit();
                 isCommited = true;
                 // Post commit actions.
                 // Update the read index.
