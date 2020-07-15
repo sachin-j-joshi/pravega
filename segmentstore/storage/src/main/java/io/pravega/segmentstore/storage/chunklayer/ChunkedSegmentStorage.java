@@ -1053,7 +1053,7 @@ public class ChunkedSegmentStorage implements Storage {
                 }
 
                 // Finally commit.
-                txn.commit(chunksToDelete.size() == 0); // if layout did not change then commit with lazyWrite.
+                txn.commit();
 
                 collectGarbage(chunksToDelete);
 
@@ -1334,6 +1334,7 @@ public class ChunkedSegmentStorage implements Storage {
     }
 
     private void checkChunksExist(MetadataTransaction txn, SegmentMetadata segmentMetadata) throws StorageMetadataException, ChunkStorageException {
+        /*
         String current = segmentMetadata.getFirstChunk();
         ArrayList<ChunkMetadata> list = new ArrayList<>();
         while (null != current) {
@@ -1345,5 +1346,6 @@ public class ChunkedSegmentStorage implements Storage {
             Preconditions.checkState(chunkStorage.exists(chunk.getName()), "missing chunk");
         }
         Preconditions.checkState(segmentMetadata.getChunkCount() == list.size(), "invalid chunk count");
+        */
     }
 }
