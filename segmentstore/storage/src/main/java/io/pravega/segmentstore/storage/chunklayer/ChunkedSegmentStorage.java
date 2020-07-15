@@ -1053,7 +1053,7 @@ public class ChunkedSegmentStorage implements Storage {
                 }
 
                 // Finally commit.
-                txn.commit(chunksToDelete.size() == 0); // if layout did not change then commit with lazyWrite.
+                txn.commit();
 
                 collectGarbage(chunksToDelete);
 
