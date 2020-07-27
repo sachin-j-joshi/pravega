@@ -516,8 +516,8 @@ public abstract class ChunkStorageTests extends ThreadPooledTestSuite {
 
         chunkStorage.setReadOnly(hWrite, true);
 
-        ChunkHandle hWrite2 = chunkStorage.openWrite(chunkName);
-        assertTrue(hWrite2.isReadOnly());
+        //ChunkHandle hWrite2 = chunkStorage.openWrite(chunkName);
+        //assertTrue(hWrite2.isReadOnly());
 
         chunkStorage.setReadOnly(hWrite, false);
         bytesWritten = chunkStorage.write(hWrite, 1, 1, new ByteArrayInputStream(new byte[1]));
