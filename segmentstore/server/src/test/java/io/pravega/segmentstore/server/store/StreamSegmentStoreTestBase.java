@@ -9,12 +9,14 @@
  */
 package io.pravega.segmentstore.server.store;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Streams;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.pravega.common.Exceptions;
 import io.pravega.common.ObjectClosedException;
 import io.pravega.common.TimeoutTimer;
+import io.pravega.common.Timer;
 import io.pravega.common.concurrent.Futures;
 import io.pravega.common.util.BufferView;
 import io.pravega.common.util.Retry;
@@ -65,8 +67,12 @@ import lombok.Cleanup;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
+import org.apache.commons.lang3.ThreadUtils;
 import org.junit.Assert;
 import org.junit.Test;
+
+import static io.pravega.segmentstore.server.containers.ContainerConfig.MINIMUM_SEGMENT_METADATA_EXPIRATION_SECONDS;
+import static io.pravega.segmentstore.storage.metadata.BaseMetadataStore.THREAD_TASK;
 
 /**
  * Base class for any test that verifies the functionality of a StreamSegmentStore class.
@@ -89,7 +95,7 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
     private static final List<UUID> ATTRIBUTES = Streams.concat(Stream.of(Attributes.EVENT_COUNT), IntStream.range(0, 10).mapToObj(i -> UUID.randomUUID())).collect(Collectors.toList());
     private static final int ATTRIBUTE_UPDATE_DELTA = APPENDS_PER_SEGMENT + ATTRIBUTE_UPDATES_PER_SEGMENT;
     private static final Duration TIMEOUT = Duration.ofSeconds(120);
-
+    private final boolean isDone = false;
     protected final ServiceBuilderConfig.Builder configBuilder = ServiceBuilderConfig
             .builder()
             .include(ServiceConfig
@@ -101,7 +107,7 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
                     .with(ServiceConfig.CACHE_POLICY_MAX_TIME, 30))
             .include(ContainerConfig
                     .builder()
-                    .with(ContainerConfig.SEGMENT_METADATA_EXPIRATION_SECONDS, ContainerConfig.MINIMUM_SEGMENT_METADATA_EXPIRATION_SECONDS))
+                    .with(ContainerConfig.SEGMENT_METADATA_EXPIRATION_SECONDS, MINIMUM_SEGMENT_METADATA_EXPIRATION_SECONDS))
             .include(DurableLogConfig
                     .builder()
                     .with(DurableLogConfig.CHECKPOINT_MIN_COMMIT_COUNT, 10)
@@ -333,7 +339,43 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
      */
     @Test
     public void testEndToEndWithFencingWithChunkedStorage() throws Exception {
+        CompletableFuture f = CompletableFuture.runAsync(() -> {
+            printBlockedThreads();
+        });
         endToEndProcessWithFencing(true, true);
+    }
+
+    private void printBlockedThreads() {
+        Timer t = new Timer();
+        while (t.getElapsed().compareTo(TIMEOUT) < 0 && !isDone) {
+            try {
+                ArrayList<Thread> threads = new ArrayList<Thread>();
+                for (Thread thread : ThreadUtils.getAllThreads()) {
+                    if (thread.getName().contains("storage-io")) {
+                        if (thread.getState().equals(Thread.State.BLOCKED)) {
+                            threads.add(thread);
+                        }
+                    }
+                }
+                if (threads.size() > 0) {
+                    StringBuilder str = new StringBuilder();
+                    str.append("%n**** BLOCKED THREADS ****%n");
+                    for (Thread thread : threads ) {
+                        String key = THREAD_TASK.get(thread.getName());
+                        str.append(String.format("%s -- %s%n\t%s %n\t%s%n", thread.getName(),
+                                Strings.nullToEmpty(key),
+                                thread.getStackTrace()[0],
+                                thread.getStackTrace()[1]));
+                    }
+                    str.append("********%n");
+                    System.out.printf(str.toString());
+                }
+                Thread.sleep(10L);
+            } catch (InterruptedException e) {
+                //Thread.currentThread().interrupt();
+                break;
+            }
+        }
     }
 
     /**
@@ -354,6 +396,8 @@ public abstract class StreamSegmentStoreTestBase extends ThreadPooledTestSuite {
             val segmentNames = createSegments(context.getActiveStore());
             val segmentsAndTransactions = new ArrayList<String>(segmentNames);
             log.info("Created Segments: {}.", String.join(", ", segmentNames));
+
+            //Thread.sleep(100 + Duration.ofSeconds(MINIMUM_SEGMENT_METADATA_EXPIRATION_SECONDS).toMillis());
 
             // Generate all the requests.
             HashMap<String, Long> lengths = new HashMap<>();

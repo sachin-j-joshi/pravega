@@ -97,6 +97,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Beta
 abstract public class BaseMetadataStore implements ChunkMetadataStore {
+
+    public static final HashMap<String, String> THREAD_TASK = new HashMap<String, String>();
+
     /**
      * Maximum number of metadata entries to keep in recent transaction buffer.
      */
@@ -303,44 +306,49 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
      */
     @Override
     public StorageMetadata get(MetadataTransaction txn, String key) throws StorageMetadataException {
-        Preconditions.checkArgument(null != txn);
-        TransactionData dataFromBuffer = null;
-        if (null == key) {
-            return null;
-        }
-        StorageMetadata retValue = null;
-
-        Map<String, TransactionData> txnData = txn.getData();
-        TransactionData data = txnData.get(key);
-
-        // Search in the buffer.
-        if (null == data) {
-            synchronized (lock) {
-                dataFromBuffer = bufferedTxnData.get(key);
+        try {
+            THREAD_TASK.put(Thread.currentThread().getName(), key);
+            Preconditions.checkArgument(null != txn);
+            TransactionData dataFromBuffer = null;
+            if (null == key) {
+                return null;
             }
-            // If we did not find in buffer then load it from store
-            if (null == dataFromBuffer) {
-                // NOTE: This call to read MUST be outside the lock, it is most likely cause re-entry.
-                loadFromStore(key);
-                dataFromBuffer = bufferedTxnData.get(key);
-                Preconditions.checkState(null != dataFromBuffer);
+            StorageMetadata retValue = null;
+
+            Map<String, TransactionData> txnData = txn.getData();
+            TransactionData data = txnData.get(key);
+
+            // Search in the buffer.
+            if (null == data) {
+                synchronized (lock) {
+                    dataFromBuffer = bufferedTxnData.get(key);
+                }
+                // If we did not find in buffer then load it from store
+                if (null == dataFromBuffer) {
+                    // NOTE: This call to read MUST be outside the lock, it is most likely cause re-entry.
+                    loadFromStore(key);
+                    dataFromBuffer = bufferedTxnData.get(key);
+                    Preconditions.checkState(null != dataFromBuffer);
+                }
+
+                if (null != dataFromBuffer && null != dataFromBuffer.getValue()) {
+                    // Make copy.
+                    data = dataFromBuffer.toBuilder()
+                            .key(key)
+                            .value(dataFromBuffer.getValue().deepCopy())
+                            .build();
+                    txnData.put(key, data);
+                }
             }
 
-            if (null != dataFromBuffer && null != dataFromBuffer.getValue()) {
-                // Make copy.
-                data = dataFromBuffer.toBuilder()
-                        .key(key)
-                        .value(dataFromBuffer.getValue().deepCopy())
-                        .build();
-                txnData.put(key, data);
+            if (data != null) {
+                retValue = data.getValue();
             }
-        }
 
-        if (data != null) {
-            retValue = data.getValue();
+            return retValue;
+        } finally {
+            THREAD_TASK.remove(Thread.currentThread().getName());
         }
-
-        return retValue;
     }
 
     /**
