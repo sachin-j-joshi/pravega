@@ -24,6 +24,7 @@ import lombok.val;
 
 import java.io.InputStream;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 /**
  * NoOp implementation.
@@ -33,6 +34,10 @@ public class NoOpChunkStorage extends AbstractInMemoryChunkStorage {
     @Getter
     @Setter
     ConcurrentHashMap<String, ChunkData> chunkMetadata = new ConcurrentHashMap<>();
+
+    public NoOpChunkStorage(Executor executor) {
+        super(executor);
+    }
 
     @Override
     protected ChunkInfo doGetInfo(String chunkName) throws ChunkStorageException, IllegalArgumentException {

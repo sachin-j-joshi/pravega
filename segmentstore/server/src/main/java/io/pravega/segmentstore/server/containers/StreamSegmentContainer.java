@@ -185,7 +185,7 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
      *
      * @throws Exception
      */
-    private void initializeStorage() throws Exception {
+    private CompletableFuture<Void> initializeStorage() throws Exception {
         this.storage.initialize(this.metadata.getContainerEpoch());
 
         if (this.storage instanceof ChunkedSegmentStorage) {
@@ -195,11 +195,12 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
             ContainerTableExtension tableExtension = getExtension(ContainerTableExtension.class);
             String s = NameUtils.getStorageMetadataSegmentName(this.metadata.getContainerId());
 
-            val metadata = new TableBasedMetadataStore(s, tableExtension);
+            val metadataStore = new TableBasedMetadataStore(s, tableExtension, chunkedStorage.getExecutor());
 
             // Bootstrap
-            chunkedStorage.bootstrap(this.metadata.getContainerId(), metadata);
+            return chunkedStorage.bootstrap(this.metadata.getContainerId(), metadataStore);
         }
+        return CompletableFuture.completedFuture(null);
     }
 
     //endregion
@@ -279,11 +280,11 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
 
     private CompletableFuture<Void> initializeSecondaryServices() {
         try {
-            initializeStorage();
+            return initializeStorage()
+                    .thenComposeAsync(v -> this.metadataStore.initialize(this.config.getMetadataStoreInitTimeout()));
         } catch (Exception ex) {
             return Futures.failedFuture(ex);
         }
-        return this.metadataStore.initialize(this.config.getMetadataStoreInitTimeout());
     }
 
     private CompletableFuture<Void> startSecondaryServicesAsync() {

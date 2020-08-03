@@ -43,6 +43,7 @@ import java.io.InputStream;
 
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.Executor;
 
 /**
  * {@link ChunkStorage} for extended S3 based storage.
@@ -63,7 +64,8 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
     //endregion
 
     //region constructor
-    public ExtendedS3ChunkStorage(S3Client client, ExtendedS3StorageConfig config) {
+    public ExtendedS3ChunkStorage(S3Client client, ExtendedS3StorageConfig config, Executor executor) {
+        super(executor);
         this.config = Preconditions.checkNotNull(config, "config");
         this.client = Preconditions.checkNotNull(client, "client");
     }

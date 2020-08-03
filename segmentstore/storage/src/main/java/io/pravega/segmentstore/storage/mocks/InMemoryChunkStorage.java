@@ -28,6 +28,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 /**
  * In-Memory mock for ChunkStorage. Contents is destroyed when object is garbage collected.
@@ -35,6 +36,10 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class InMemoryChunkStorage extends AbstractInMemoryChunkStorage {
     private final ConcurrentHashMap<String, InMemoryChunk> chunks = new ConcurrentHashMap<String, InMemoryChunk>();
+
+    public InMemoryChunkStorage(Executor executor) {
+        super(executor);
+    }
 
     @Override
     protected ChunkInfo doGetInfo(String chunkName) throws ChunkStorageException, IllegalArgumentException {

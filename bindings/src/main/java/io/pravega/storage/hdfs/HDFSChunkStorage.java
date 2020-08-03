@@ -16,6 +16,7 @@ import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.pravega.segmentstore.storage.chunklayer.BaseChunkStorage;
@@ -69,7 +70,8 @@ class HDFSChunkStorage extends BaseChunkStorage {
      *
      * @param config The configuration to use.
      */
-    HDFSChunkStorage(HDFSStorageConfig config) {
+    HDFSChunkStorage(HDFSStorageConfig config, Executor executor) {
+        super(executor);
         Preconditions.checkNotNull(config, "config");
         this.config = config;
         this.closed = new AtomicBoolean(false);
