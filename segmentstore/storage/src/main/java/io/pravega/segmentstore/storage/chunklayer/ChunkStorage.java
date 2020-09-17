@@ -12,6 +12,7 @@ package io.pravega.segmentstore.storage.chunklayer;
 import com.google.common.annotations.Beta;
 
 import java.io.InputStream;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Defines an abstraction for Permanent Storage.
@@ -72,56 +73,56 @@ public interface ChunkStorage extends AutoCloseable {
      *
      * @param chunkName Name of the storage object to check.
      * @return True if the object exists, false otherwise.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
      */
-    boolean exists(String chunkName) throws ChunkStorageException;
+    CompletableFuture<Boolean> exists(String chunkName);
 
     /**
      * Creates a new file.
      *
      * @param chunkName String name of the storage object to create.
      * @return ChunkHandle A writable handle for the recently created chunk.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
      */
-    ChunkHandle create(String chunkName) throws ChunkStorageException;
+    CompletableFuture<ChunkHandle> create(String chunkName);
 
     /**
      * Deletes a file.
      *
      * @param handle ChunkHandle of the storage object to delete.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
      */
-    void delete(ChunkHandle handle) throws ChunkStorageException;
+    CompletableFuture<Void> delete(ChunkHandle handle);
 
     /**
      * Opens storage object for Read.
      *
      * @param chunkName String name of the storage object to read from.
      * @return ChunkHandle A readable handle for the given chunk.
-     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws IllegalArgumentException If argument is invalid.
+     * throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
+     * throws IllegalArgumentException If argument is invalid.
      */
-    ChunkHandle openRead(String chunkName) throws ChunkStorageException, IllegalArgumentException;
+    CompletableFuture<ChunkHandle>  openRead(String chunkName);
 
     /**
      * Opens storage object for Write (or modifications).
      *
      * @param chunkName String name of the storage object to write to or modify.
      * @return ChunkHandle A writable handle for the given chunk.
-     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws IllegalArgumentException If argument is invalid.
+     * throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
+     * throws IllegalArgumentException If argument is invalid.
      */
-    ChunkHandle openWrite(String chunkName) throws ChunkStorageException, IllegalArgumentException;
+    CompletableFuture<ChunkHandle>  openWrite(String chunkName);
 
     /**
      * Retrieves the ChunkInfo for given name.
      *
      * @param chunkName String name of the storage object to read from.
      * @return ChunkInfo Information about the given chunk.
-     * @throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws IllegalArgumentException If argument is invalid.
+     * throws ChunkStorageException    Throws ChunkStorageException in case of I/O related exceptions.
+     * throws IllegalArgumentException If argument is invalid.
      */
-    ChunkInfo getInfo(String chunkName) throws ChunkStorageException, IllegalArgumentException;
+    CompletableFuture<ChunkInfo> getInfo(String chunkName);
 
     /**
      * Reads a range of bytes from the underlying storage object.
@@ -132,12 +133,12 @@ public interface ChunkStorage extends AutoCloseable {
      * @param buffer       Byte buffer to which data is copied.
      * @param bufferOffset Offset in the buffer at which to start copying read data.
      * @return int Number of bytes read.
-     * @throws ChunkStorageException     Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws IllegalArgumentException  If argument is invalid.
-     * @throws NullPointerException      If the parameter is null.
-     * @throws IndexOutOfBoundsException If the index is out of bounds or offset is not a valid offset in the underlying file/object.
+     * throws ChunkStorageException     Throws ChunkStorageException in case of I/O related exceptions.
+     * throws IllegalArgumentException  If argument is invalid.
+     * throws NullPointerException      If the parameter is null.
+     * throws IndexOutOfBoundsException If the index is out of bounds or offset is not a valid offset in the underlying file/object.
      */
-    int read(ChunkHandle handle, long fromOffset, int length, byte[] buffer, int bufferOffset) throws ChunkStorageException, NullPointerException, IndexOutOfBoundsException;
+    CompletableFuture<Integer> read(ChunkHandle handle, long fromOffset, int length, byte[] buffer, int bufferOffset);
 
     /**
      * Writes the given data to the underlying storage object.
@@ -155,10 +156,10 @@ public interface ChunkStorage extends AutoCloseable {
      * @param length Number of bytes to write.
      * @param data   An InputStream representing the data to write.
      * @return int Number of bytes written.
-     * @throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws IndexOutOfBoundsException When data can not be written at given offset.
+     * throws ChunkStorageException Throws ChunkStorageException in case of I/O related exceptions.
+     * throws IndexOutOfBoundsException When data can not be written at given offset.
      */
-    int write(ChunkHandle handle, long offset, int length, InputStream data) throws ChunkStorageException, IndexOutOfBoundsException;
+    CompletableFuture<Integer> write(ChunkHandle handle, long offset, int length, InputStream data);
 
     /**
      * Concatenates two or more chunks using native facility. The first chunk is concatenated to.
@@ -166,10 +167,10 @@ public interface ChunkStorage extends AutoCloseable {
      * @param chunks Array of ConcatArgument objects containing info about existing chunks to be appended together.
      *               The chunks must be concatenated in the same sequence the arguments are provided.
      * @return int Number of bytes concatenated.
-     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws UnsupportedOperationException If this operation is not supported by this provider.
+     * throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
+     * throws UnsupportedOperationException If this operation is not supported by this provider.
      */
-    int concat(ConcatArgument[] chunks) throws ChunkStorageException, UnsupportedOperationException;
+    CompletableFuture<Integer> concat(ConcatArgument[] chunks);
 
     /**
      * Truncates a given chunk.
@@ -177,18 +178,18 @@ public interface ChunkStorage extends AutoCloseable {
      * @param handle ChunkHandle of the storage object to truncate.
      * @param offset Offset to truncate to.
      * @return True if the object was truncated, false otherwise.
-     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws UnsupportedOperationException If this operation is not supported by this provider.
+     * throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
+     * throws UnsupportedOperationException If this operation is not supported by this provider.
      */
-    boolean truncate(ChunkHandle handle, long offset) throws ChunkStorageException, UnsupportedOperationException;
+    CompletableFuture<Boolean> truncate(ChunkHandle handle, long offset);
 
     /**
      * Makes chunk as either readonly or writable.
      *
      * @param handle     ChunkHandle of the storage object.
      * @param isReadonly True if chunk is set to be readonly.
-     * @throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
-     * @throws UnsupportedOperationException If this operation is not supported by this provider.
+     * throws ChunkStorageException         Throws ChunkStorageException in case of I/O related exceptions.
+     * throws UnsupportedOperationException If this operation is not supported by this provider.
      */
-    void setReadOnly(ChunkHandle handle, boolean isReadonly) throws ChunkStorageException, UnsupportedOperationException;
+    CompletableFuture<Void> setReadOnly(ChunkHandle handle, boolean isReadonly);
 }
