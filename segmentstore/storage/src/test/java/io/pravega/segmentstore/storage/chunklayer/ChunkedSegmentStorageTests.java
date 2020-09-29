@@ -73,6 +73,10 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         super.after();
     }
 
+    protected int getThreadPoolSize() {
+        return 1;
+    }
+
     public ChunkStorage createChunkStorageProvider() throws Exception {
         return new NoOpChunkStorage(executorService());
     }
@@ -1789,7 +1793,7 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         // Set up a call back which will be invoked during writeAll call.
         ((InMemoryMetadataStore) testContext.metadataStore).setWriteCallback(transactionDataList -> {
             // Make sure we don't invoke read for system segment itself.
-            if (transactionDataList.stream().filter(t -> t.getKey().equals(systemSegment)).findAny().isPresent()) {
+            if (transactionDataList.stream().filter(t -> !t.getKey().equals(systemSegment)).findAny().isPresent()) {
                 return futureToWaitOn.thenComposeAsync(v -> checkDataReadAsync(systemSegment, testContext, 0, 1, executorService()), executorService())
                         .thenApplyAsync(v -> null, executorService());
             }
