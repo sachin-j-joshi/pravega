@@ -51,6 +51,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -87,6 +89,11 @@ public class ChunkedSegmentStorage implements Storage {
      * Storage executor object.
      */
     private final Executor executor;
+
+    /**
+     * Storage executor service object used for system segments.
+     */
+    private final ExecutorService systemExecutor;
 
     /**
      * Tracks whether this instance is closed or not.
@@ -139,6 +146,7 @@ public class ChunkedSegmentStorage implements Storage {
         this.config = Preconditions.checkNotNull(config, "config");
         this.chunkStorage = Preconditions.checkNotNull(chunkStorage, "chunkStorage");
         this.executor = Preconditions.checkNotNull(executor, "executor");
+        this.systemExecutor = Executors.newCachedThreadPool();
         this.readIndexCache = new ReadIndexCache(config.getMaxIndexedSegments(),
                 config.getMaxIndexedChunksPerSegment(),
                 config.getMaxIndexedChunks());
@@ -158,6 +166,7 @@ public class ChunkedSegmentStorage implements Storage {
         this.chunkStorage = Preconditions.checkNotNull(chunkStorage, "chunkStorage");
         this.metadataStore = Preconditions.checkNotNull(metadataStore, "metadataStore");
         this.executor = Preconditions.checkNotNull(executor, "executor");
+        this.systemExecutor = Executors.newCachedThreadPool();
         this.readIndexCache = new ReadIndexCache(config.getMaxIndexedSegments(),
                 config.getMaxIndexedChunksPerSegment(),
                 config.getMaxIndexedChunks());
@@ -195,7 +204,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<SegmentHandle> openWrite(String streamSegmentName) {
         checkInitialized();
-        return execute(() -> {
+        return execute(streamSegmentName, () -> {
             long traceId = LoggerHelpers.traceEnter(log, "openWrite", streamSegmentName);
             Preconditions.checkNotNull(streamSegmentName, "streamSegmentName");
             try (MetadataTransaction txn = metadataStore.beginTransaction(streamSegmentName)) {
@@ -284,7 +293,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<SegmentHandle> create(String streamSegmentName, SegmentRollingPolicy rollingPolicy, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        return execute(streamSegmentName, () -> {
             long traceId = LoggerHelpers.traceEnter(log, "create", streamSegmentName, rollingPolicy);
             Timer timer = new Timer();
 
@@ -323,7 +332,8 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Void> write(SegmentHandle handle, long offset, InputStream data, int length, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        Preconditions.checkArgument(null != handle, "handle");
+        return execute(handle.getSegmentName(), () -> {
             long traceId = LoggerHelpers.traceEnter(log, "write", handle, offset, length);
             Timer timer = new Timer();
 
@@ -556,6 +566,16 @@ public class ChunkedSegmentStorage implements Storage {
     }
 
     /**
+     * Gets whether given segment is a critical storage system segment.
+     *
+     * @param segmentName Name the segment.
+     * @return True if this is a storage system segment.
+     */
+    private boolean isStorageSystemSegment(String segmentName) {
+        return null != systemJournal && systemJournal.isStorageSystemSegment(segmentName);
+    }
+
+    /**
      * Adds a system log.
      *
      * @param systemLogRecords
@@ -599,7 +619,8 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Void> seal(SegmentHandle handle, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        Preconditions.checkNotNull(handle, "handle");
+        return execute(handle.getSegmentName(), () -> {
             long traceId = LoggerHelpers.traceEnter(log, "seal", handle);
             Preconditions.checkNotNull(handle, "handle");
             String streamSegmentName = handle.getSegmentName();
@@ -631,7 +652,8 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Void> concat(SegmentHandle targetHandle, long offset, String sourceSegment, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        Preconditions.checkArgument(null != targetHandle, "targetHandle");
+        return execute(targetHandle.getSegmentName(), () -> {
             long traceId = LoggerHelpers.traceEnter(log, "concat", targetHandle, offset, sourceSegment);
             Timer timer = new Timer();
 
@@ -929,7 +951,8 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Void> delete(SegmentHandle handle, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        Preconditions.checkArgument(null != handle, "handle");
+        return execute(handle.getSegmentName(), () -> {
             long traceId = LoggerHelpers.traceEnter(log, "delete", handle);
             Timer timer = new Timer();
 
@@ -978,7 +1001,8 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Void> truncate(SegmentHandle handle, long offset, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        Preconditions.checkArgument(null != handle, "handle");
+        return execute(handle.getSegmentName(), () -> {
             long traceId = LoggerHelpers.traceEnter(log, "truncate", handle, offset);
             Timer timer = new Timer();
 
@@ -1089,7 +1113,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<SegmentHandle> openRead(String streamSegmentName) {
         checkInitialized();
-        return execute(() -> {
+        return execute(streamSegmentName, () -> {
             long traceId = LoggerHelpers.traceEnter(log, "openRead", streamSegmentName);
             // Validate preconditions and return handle.
             Preconditions.checkNotNull(streamSegmentName, "streamSegmentName");
@@ -1115,7 +1139,8 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Integer> read(SegmentHandle handle, long offset, byte[] buffer, int bufferOffset, int length, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        Preconditions.checkArgument(null != handle, "handle");
+        return execute(handle.getSegmentName(), () -> {
             long traceId = LoggerHelpers.traceEnter(log, "read", handle, offset, length);
             Timer timer = new Timer();
 
@@ -1233,7 +1258,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<SegmentProperties> getStreamSegmentInfo(String streamSegmentName, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        return execute(streamSegmentName, () -> {
             long traceId = LoggerHelpers.traceEnter(log, "getStreamSegmentInfo", streamSegmentName);
             Preconditions.checkNotNull(streamSegmentName, "streamSegmentName");
             try (MetadataTransaction txn = metadataStore.beginTransaction(streamSegmentName)) {
@@ -1259,7 +1284,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Boolean> exists(String streamSegmentName, Duration timeout) {
         checkInitialized();
-        return execute(() -> {
+        return execute(streamSegmentName, () -> {
             long traceId = LoggerHelpers.traceEnter(log, "exists", streamSegmentName);
             Preconditions.checkNotNull(streamSegmentName, "streamSegmentName");
             try (MetadataTransaction txn = metadataStore.beginTransaction(streamSegmentName)) {
@@ -1274,6 +1299,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public void close() {
         try {
+            this.systemExecutor.shutdown();
             if (null != this.metadataStore) {
                 this.metadataStore.close();
             }
@@ -1287,11 +1313,12 @@ public class ChunkedSegmentStorage implements Storage {
      * Executes the given Callable and returns its result, while translating any Exceptions bubbling out of it into
      * StreamSegmentExceptions.
      *
+     * @param segmentName Name of the segment.
      * @param operation The function to execute.
      * @param <R>       Return type of the operation.
      * @return CompletableFuture<R> of the return type of the operation.
      */
-    private <R> CompletableFuture<R> execute(Callable<R> operation) {
+    private <R> CompletableFuture<R> execute(String segmentName, Callable<R> operation) {
         return CompletableFuture.supplyAsync(() -> {
             Exceptions.checkNotClosed(this.closed.get(), this);
             try {
@@ -1299,7 +1326,7 @@ public class ChunkedSegmentStorage implements Storage {
             } catch (Exception e) {
                 throw new CompletionException(e);
             }
-        }, this.executor);
+        }, isStorageSystemSegment(segmentName) ? this.systemExecutor : this.executor);
     }
 
     private String getNewChunkName(String segmentName, long offset) throws Exception {

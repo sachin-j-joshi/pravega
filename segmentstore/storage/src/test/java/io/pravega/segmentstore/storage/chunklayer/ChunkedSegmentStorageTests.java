@@ -719,8 +719,8 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
                 testContext.storageManager.write(h, 0, null, 1, TIMEOUT),
                 ex -> ex instanceof IllegalArgumentException);
 
-        AssertExtensions.assertFutureThrows("write() allowed for invalid parameters",
-                testContext.storageManager.write(null, 0, inputStream, 1, TIMEOUT),
+        AssertExtensions.assertThrows("write() allowed for invalid parameters",
+                () -> testContext.storageManager.write(null, 0, inputStream, 1, TIMEOUT).join(),
                 ex -> ex instanceof IllegalArgumentException);
 
         AssertExtensions.assertFutureThrows("write() allowed for invalid parameters",
@@ -1078,8 +1078,8 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
                 testContext.storageManager.concat(h, -1, validSourceSegmentName, TIMEOUT),
                 ex -> ex instanceof IllegalArgumentException);
 
-        AssertExtensions.assertFutureThrows("conact() allowed for invalid parameters",
-                testContext.storageManager.concat(null, validEnd, validSourceSegmentName, TIMEOUT),
+        AssertExtensions.assertThrows("conact() allowed for invalid parameters",
+                () -> testContext.storageManager.concat(null, validEnd, validSourceSegmentName, TIMEOUT).join(),
                 ex -> ex instanceof IllegalArgumentException);
 
         AssertExtensions.assertFutureThrows("conact() allowed for invalid parameters",
@@ -1310,8 +1310,8 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
                 testContext.storageManager.truncate(h, -1, TIMEOUT),
                 ex -> ex instanceof IllegalArgumentException);
 
-        AssertExtensions.assertFutureThrows("truncate() allowed for invalid parameters",
-                testContext.storageManager.truncate(null, 11, TIMEOUT),
+        AssertExtensions.assertThrows("truncate() allowed for invalid parameters",
+                () -> testContext.storageManager.truncate(null, 11, TIMEOUT).join(),
                 ex -> ex instanceof IllegalArgumentException);
 
         AssertExtensions.assertFutureThrows("truncate() allowed for invalid parameters",
