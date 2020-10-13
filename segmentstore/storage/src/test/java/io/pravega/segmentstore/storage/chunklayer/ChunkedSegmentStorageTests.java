@@ -1683,6 +1683,10 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
     @Test
     public void testParallelSegmentOperations() throws Exception {
         int numberOfRequests = 10;
+        testParallelSegmentOperations(numberOfRequests);
+    }
+
+    private void testParallelSegmentOperations(int numberOfRequests) throws Exception {
         SegmentRollingPolicy policy = new SegmentRollingPolicy(2); // Force rollover after every 2 byte.
         TestContext testContext = getTestContext();
 
@@ -1704,6 +1708,10 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
     @Test
     public void testParallelSegmentOperationsWithReentry() throws Exception {
         int numberOfRequests = 10;
+        testParallelSegmentOperationsWithReentry(numberOfRequests);
+    }
+
+    private void testParallelSegmentOperationsWithReentry(int numberOfRequests) throws Exception {
         SegmentRollingPolicy policy = new SegmentRollingPolicy(2); // Force rollover after every 2 byte.
 
         TestContext testContext = getTestContext();
@@ -1733,7 +1741,7 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         // Set up a call back which will be invoked during writeAll call.
         ((InMemoryMetadataStore) testContext.metadataStore).setWriteCallback(transactionDataList -> {
             // Make sure we don't invoke read for system segment itself.
-            if (transactionDataList.stream().filter(t -> t.getKey().equals(systemSegment)).findAny().isPresent()) {
+            if (transactionDataList.stream().filter(t -> !t.getKey().equals(systemSegment)).findAny().isPresent()) {
                 try {
                     checkDataRead(systemSegment, testContext, 0, 1);
                 } catch (Exception e) {
@@ -1761,6 +1769,10 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
     @Test
     public void testParallelReadRequestsOnSingleSegment() throws Exception {
         int numberOfRequests = 10;
+        testParallelReadRequestsOnSingleSegment(numberOfRequests);
+    }
+
+    private void testParallelReadRequestsOnSingleSegment(int numberOfRequests) throws Exception {
         String testSegmentName = "testSegment";
 
         SegmentRollingPolicy policy = new SegmentRollingPolicy(2); // Force rollover after every 2 byte.
@@ -1807,6 +1819,10 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
     @Test
     public void testParallelReadRequestsOnSingleSegmentWithReentry() throws Exception {
         int numberOfRequests = 10;
+        testParallelReadRequestsOnSingleSegmentWithReentry(numberOfRequests);
+    }
+
+    private void testParallelReadRequestsOnSingleSegmentWithReentry(int numberOfRequests) throws Exception {
         String testSegmentName = "testSegment";
 
         SegmentRollingPolicy policy = new SegmentRollingPolicy(2); // Force rollover after every 2 byte.
