@@ -12,6 +12,9 @@ package io.pravega.segmentstore.storage.metadata;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.Preconditions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.ConcurrentHashMultiset;
 import io.pravega.common.ObjectBuilder;
 import io.pravega.common.io.serialization.RevisionDataInput;
 import io.pravega.common.io.serialization.RevisionDataOutput;
@@ -35,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -106,8 +110,17 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
     /**
      * Maximum number of metadata entries to keep in recent transaction buffer.
      */
-    private static final int MAX_ENTRIES_IN_TXN_BUFFER = 5000;
+    private static final int MAX_ENTRIES_IN_TXN_BUFFER = 1000;
 
+    /**
+     * Maximum number of metadata entries to keep in cache.
+     */
+    private static final int MAX_ENTRIES_IN_CACHE = 5000;
+
+    /**
+     * Percentage of cache evicted at any time. (1 / CACHE_EVICTION_RATIO) entries are evicted at once.
+     */
+    private static final int CACHE_EVICTION_RATIO = 10;
     /**
      * Maximum wait time for acquiring individual locks.
      */
@@ -122,6 +135,16 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
      * Monotonically increasing number. Keeps track of versions independent of external persistence or transaction mechanism.
      */
     private final AtomicLong version;
+
+    /**
+     * Set of active records from commits that are in-flight. These records should not be evicted until the active commits finish.
+     */
+    private final ConcurrentHashMultiset<String> activeKeys;
+
+    /**
+     * Cache for reading and writing transaction data entries to underlying KV store.
+     */
+    private final Cache<String, TransactionData> cache;
 
     /**
      * Buffer for reading and writing transaction data entries to underlying KV store.
@@ -142,12 +165,38 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
     int maxEntriesInTxnBuffer = MAX_ENTRIES_IN_TXN_BUFFER;
 
     /**
+     * Maximum number of metadata entries to keep in recent transaction buffer.
+     */
+    @Getter
+    @Setter
+    int maxEntriesInCache = MAX_ENTRIES_IN_CACHE;
+
+    /**
+     * Keep count of records in buffer. ConcurrentHashMap.size() is an expensive operation.
+     */
+    private final AtomicInteger bufferCount = new AtomicInteger(0);
+
+    /**
+     * Flag to keep track of whether the eviction is currently running.
+     */
+    private final AtomicBoolean isEvictionRunning = new AtomicBoolean();
+
+    /**
+     * Lock object to synchronize on during eviction.
+     */
+    private final Object evictionLock = new Object();
+
+    /**
      * Constructs a BaseMetadataStore object.
      */
     public BaseMetadataStore() {
         version = new AtomicLong(System.currentTimeMillis()); // Start with unique number.
         fenced = new AtomicBoolean(false);
         bufferedTxnData = new ConcurrentHashMap<>(); // Don't think we need anything fancy here. But we'll measure and see.
+        activeKeys = ConcurrentHashMultiset.create();
+        cache = CacheBuilder.newBuilder()
+                .maximumSize(maxEntriesInCache)
+                .build();
     }
 
     /**
@@ -161,6 +210,56 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
     public MetadataTransaction beginTransaction(String... keysToLock) throws StorageMetadataException {
         // Each transaction gets a unique number which is monotonically increasing.
         return new MetadataTransaction(this, version.incrementAndGet(), keysToLock);
+    }
+
+    private void removeFromActiveKeySet(String key) {
+        activeKeys.remove(key);
+    }
+
+    private void addToActiveKeySet(String key) {
+        // No need to synchronize if the eviction is not running.
+        if (isEvictionRunning.get()) {
+            synchronized (evictionLock) {
+                activeKeys.add(key);
+            }
+        } else {
+            activeKeys.add(key);
+        }
+    }
+
+    /**
+     * Evict entries if needed.
+     * Only evict keys that are persisted, not pinned or active.
+     */
+    private void evictIfNeeded() {
+        if (isEvictionRunning.compareAndSet(false, true)) {
+            val limit = 1 + maxEntriesInTxnBuffer / CACHE_EVICTION_RATIO;
+            if (bufferCount.get() > maxEntriesInTxnBuffer) {
+                val toEvict = bufferedTxnData.entrySet().parallelStream()
+                        .filter(entry -> entry.getValue().isPersisted() && !entry.getValue().isPinned()
+                                && !activeKeys.contains(entry.getKey()))
+                        .map(Map.Entry::getKey)
+                        .limit(limit)
+                        .collect(Collectors.toList());
+                int i = 0;
+                for (val key : toEvict) {
+                    // synchronize so that we don't accidently delete a key that becomes active after check here.
+                    synchronized (evictionLock) {
+                        if (0 == activeKeys.count(key)) {
+                            // Synchronization prevents error when key becomes active between the check and remove.
+                            // Move the key to cache
+                            cache.put(key, bufferedTxnData.get(key));
+                            // Remove from buffer.
+                            bufferedTxnData.remove(key);
+                            i++;
+                        }
+                    }
+                }
+                bufferCount.addAndGet(-1 * i);
+            }
+            isEvictionRunning.set(false);
+            log.debug("Entries evicted from transaction buffer.");
+        }
     }
 
     /**
@@ -201,101 +300,104 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
         }
 
         Map<String, TransactionData> txnData = txn.getData();
-
+        boolean isCommited = false;
         ArrayList<String> modifiedKeys = new ArrayList<>();
         ArrayList<TransactionData> modifiedValues = new ArrayList<>();
-
-        // Step 1 : If bufferedTxnData data was flushed, then read it back from external source and re-insert in bufferedTxnData buffer.
-        // This step is kind of thread safe
-        for (Map.Entry<String, TransactionData> entry : txnData.entrySet()) {
-            String key = entry.getKey();
-            if (skipStoreCheck || entry.getValue().isPinned()) {
-                log.trace("Skipping loading key from the store key = {}", key);
-            } else {
-                // This check is safe to be outside the lock
-                if (!bufferedTxnData.containsKey(key)) {
-                    loadFromStore(key);
-                }
-            }
-        }
-        // Step 2 : Check whether transaction is safe to commit.
-        // This check needs to be atomic, with absolutely no possibility of re-entry
-        val writeLock = lockManager.writeLock(txn.getKeysToLock());
         try {
-            writeLock.lock();
+            // Step 1 : If bufferedTxnData data was flushed, then read it back from external source and re-insert in bufferedTxnData buffer.
+            // This step is kind of thread safe
             for (Map.Entry<String, TransactionData> entry : txnData.entrySet()) {
                 String key = entry.getKey();
-                val transactionData = entry.getValue();
-                Preconditions.checkState(null != transactionData.getKey());
-
-                // See if this entry was modified in this transaction.
-                if (transactionData.getVersion() == txn.getVersion()) {
-                    modifiedKeys.add(key);
-                    transactionData.setPersisted(false);
-                    modifiedValues.add(transactionData);
-                }
-                // make sure none of the keys used in this transaction have changed.
-                TransactionData dataFromBuffer = bufferedTxnData.get(key);
-                if (null != dataFromBuffer) {
-                    if (dataFromBuffer.getVersion() > transactionData.getVersion()) {
-                        throw new StorageMetadataVersionMismatchException(
-                                String.format("Transaction uses stale data. Key version changed key:%s buffer:%s transaction:%s",
-                                        key, dataFromBuffer.getVersion(), txnData.get(key).getVersion()));
+                addToActiveKeySet(key);
+                if (skipStoreCheck || entry.getValue().isPinned()) {
+                    log.trace("Skipping loading key from the store key = {}", key);
+                } else {
+                    // This check is safe to be outside the lock
+                    if (!bufferedTxnData.containsKey(key)) {
+                        loadFromStore(key);
                     }
-
-                    // Pin it if it is already pinned.
-                    transactionData.setPinned(transactionData.isPinned() || dataFromBuffer.isPinned());
-
-                    // Set the database object.
-                    transactionData.setDbObject(dataFromBuffer.getDbObject());
                 }
             }
-
-            // Step 3: Commit externally.
-            // This operation may call external storage.
-            if (!lazyWrite || (bufferedTxnData.size() > maxEntriesInTxnBuffer)) {
-                log.trace("Persisting all modified keys (except pinned)");
-                val toWriteList = modifiedValues.stream().filter(entry -> !entry.isPinned()).collect(Collectors.toList());
-                writeAll(toWriteList);
-                log.trace("Done persisting all modified keys");
-
-                // Mark written keys as persisted.
-                for (val writtenData : toWriteList) {
-                    writtenData.setPersisted(true);
-                }
-            }
-
-            // Execute external commit step.
+            // Step 2 : Check whether transaction is safe to commit.
+            // This check needs to be atomic, with absolutely no possibility of re-entry
+            val writeLock = lockManager.writeLock(txn.getKeysToLock());
             try {
-                if (null != txn.getExternalCommitStep()) {
-                    txn.getExternalCommitStep().call();
+                writeLock.lock();
+                for (Map.Entry<String, TransactionData> entry : txnData.entrySet()) {
+                    String key = entry.getKey();
+                    val transactionData = entry.getValue();
+                    Preconditions.checkState(null != transactionData.getKey());
+
+                    // See if this entry was modified in this transaction.
+                    if (transactionData.getVersion() == txn.getVersion()) {
+                        modifiedKeys.add(key);
+                        transactionData.setPersisted(false);
+                        modifiedValues.add(transactionData);
+                    }
+                    // make sure none of the keys used in this transaction have changed.
+                    TransactionData dataFromBuffer = bufferedTxnData.get(key);
+                    if (null != dataFromBuffer) {
+                        if (dataFromBuffer.getVersion() > transactionData.getVersion()) {
+                            throw new StorageMetadataVersionMismatchException(
+                                    String.format("Transaction uses stale data. Key version changed key:%s buffer:%s transaction:%s",
+                                            key, dataFromBuffer.getVersion(), txnData.get(key).getVersion()));
+                        }
+
+                        // Pin it if it is already pinned.
+                        transactionData.setPinned(transactionData.isPinned() || dataFromBuffer.isPinned());
+
+                        // Set the database object.
+                        transactionData.setDbObject(dataFromBuffer.getDbObject());
+                    }
                 }
-            } catch (Exception e) {
-                log.error("Exception during execution of external commit step", e);
-                throw new StorageMetadataException("Exception during execution of external commit step", e);
-            }
 
-            // If we reach here then it means transaction is safe to commit.
-            // Step 4: Insert
-            long committedVersion = version.incrementAndGet();
-            HashMap<String, TransactionData> toAdd = new HashMap<String, TransactionData>();
-            for (String key : modifiedKeys) {
-                TransactionData data = txnData.get(key);
-                data.setVersion(committedVersion);
-                toAdd.put(key, data);
+                // Step 3: Commit externally.
+                // This operation may call external storage.
+                if (!lazyWrite || (bufferedTxnData.size() > maxEntriesInTxnBuffer)) {
+                    log.trace("Persisting all modified keys (except pinned)");
+                    val toWriteList = modifiedValues.stream().filter(entry -> !entry.isPinned()).collect(Collectors.toList());
+                    writeAll(toWriteList);
+                    log.trace("Done persisting all modified keys");
+
+                    // Mark written keys as persisted.
+                    for (val writtenData : toWriteList) {
+                        writtenData.setPersisted(true);
+                    }
+                }
+
+                // Execute external commit step.
+                try {
+                    if (null != txn.getExternalCommitStep()) {
+                        txn.getExternalCommitStep().call();
+                    }
+                } catch (Exception e) {
+                    log.error("Exception during execution of external commit step", e);
+                    throw new StorageMetadataException("Exception during execution of external commit step", e);
+                }
+
+                // If we reach here then it means transaction is safe to commit.
+                // Step 4: Insert
+                long committedVersion = version.incrementAndGet();
+                HashMap<String, TransactionData> toAdd = new HashMap<String, TransactionData>();
+                for (String key : modifiedKeys) {
+                    TransactionData data = txnData.get(key);
+                    data.setVersion(committedVersion);
+                    toAdd.put(key, data);
+                }
+                bufferedTxnData.putAll(toAdd);
+                isCommited = true;
+            } finally {
+                writeLock.unlock();
             }
-            bufferedTxnData.putAll(toAdd);
         } finally {
-            writeLock.unlock();
+            txn.getData().keySet().forEach(this::removeFromActiveKeySet);
+            //  Step 6: finally clear
+            if (isCommited) {
+                txnData.clear();
+            }
         }
 
-        //  Step 5 : evict if required.
-        if (bufferedTxnData.size() > maxEntriesInTxnBuffer) {
-            bufferedTxnData.entrySet().removeIf(entry -> entry.getValue().isPersisted() && !entry.getValue().isPinned());
-        }
-
-        //  Step 6: finally clear
-        txnData.clear();
+        evictIfNeeded();
     }
 
     /**
@@ -328,38 +430,44 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
         Map<String, TransactionData> txnData = txn.getData();
         TransactionData data = txnData.get(key);
 
-        // Search in the buffer.
-        if (null == data) {
-            val readLock = lockManager.readLock(txn.getKeysToLock());
-            try {
-                readLock.lock();
-                dataFromBuffer = bufferedTxnData.get(key);
-            } finally {
-                readLock.unlock();
-            }
-            // If we did not find in buffer then load it from store
-            if (null == dataFromBuffer) {
-                // NOTE: This call to read MUST be outside the lock, it is most likely cause re-entry.
-                loadFromStore(key);
-                dataFromBuffer = bufferedTxnData.get(key);
-                Preconditions.checkState(null != dataFromBuffer);
+        try {
+            // Prevent the key from getting evicted.
+            addToActiveKeySet(key);
+            // Search in the buffer.
+            if (null == data) {
+                val readLock = lockManager.readLock(txn.getKeysToLock());
+                try {
+                    readLock.lock();
+                    dataFromBuffer = bufferedTxnData.get(key);
+                } finally {
+                    readLock.unlock();
+                }
+                // If we did not find in buffer then load it from store
+                if (null == dataFromBuffer) {
+                    // NOTE: This call to read MUST be outside the lock, it is most likely cause re-entry.
+                    loadFromStore(key);
+                    dataFromBuffer = bufferedTxnData.get(key);
+                    Preconditions.checkState(null != dataFromBuffer);
+                }
+
+                if (null != dataFromBuffer && null != dataFromBuffer.getValue()) {
+                    // Make copy.
+                    data = dataFromBuffer.toBuilder()
+                            .key(key)
+                            .value(dataFromBuffer.getValue().deepCopy())
+                            .build();
+                    txnData.put(key, data);
+                }
             }
 
-            if (null != dataFromBuffer && null != dataFromBuffer.getValue()) {
-                // Make copy.
-                data = dataFromBuffer.toBuilder()
-                        .key(key)
-                        .value(dataFromBuffer.getValue().deepCopy())
-                        .build();
-                txnData.put(key, data);
+            if (data != null) {
+                retValue = data.getValue();
             }
+
+            return retValue;
+        } finally {
+            removeFromActiveKeySet(key);
         }
-
-        if (data != null) {
-            retValue = data.getValue();
-        }
-
-        return retValue;
     }
 
     /**
@@ -385,6 +493,7 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
             // Make sure it is a deep copy.
             copyForBuffer.setValue(fromDb.getValue().deepCopy());
         }
+        Preconditions.checkState(null != copyForBuffer.dbObject);
         // Put this value in bufferedTxnData buffer.
         val writeLock = lockManager.writeLock(key);
         try {
@@ -397,6 +506,9 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
         } finally {
             writeLock.unlock();
         }
+        Preconditions.checkState(activeKeys.contains(key));
+        Preconditions.checkState(bufferedTxnData.containsKey(key));
+        Preconditions.checkState(null != copyForBuffer.dbObject);
         return copyForBuffer;
     }
 
