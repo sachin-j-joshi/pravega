@@ -101,7 +101,8 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
     @Test
     public void testSupportsTruncate() throws Exception {
         val storageProvider = createChunkStorageProvider();
-        val storageManager = new ChunkedSegmentStorage(storageProvider, executorService(), ChunkedSegmentStorageConfig.DEFAULT_CONFIG);
+        val metadataStore = createMetadataStore();
+        val storageManager = new ChunkedSegmentStorage(storageProvider, metadataStore, executorService(), ChunkedSegmentStorageConfig.DEFAULT_CONFIG);
         Assert.assertTrue(storageManager.supportsTruncation());
     }
 
@@ -116,19 +117,18 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         val metadataStore = createMetadataStore();
         val policy = SegmentRollingPolicy.NO_ROLLING;
         val config = ChunkedSegmentStorageConfig.DEFAULT_CONFIG;
-        val storageManager = new ChunkedSegmentStorage(storageProvider, executorService(), config);
+        val storageManager = new ChunkedSegmentStorage(storageProvider, metadataStore, executorService(), config);
         val systemJournal = new SystemJournal(CONTAINER_ID, 1, storageProvider, metadataStore, config);
 
         testUninitialized(storageManager);
 
         storageManager.initialize(1);
 
-        Assert.assertNull(storageManager.getMetadataStore());
         Assert.assertEquals(storageProvider, storageManager.getChunkStorage());
         Assert.assertEquals(policy, storageManager.getConfig().getDefaultRollingPolicy());
         Assert.assertEquals(1, storageManager.getEpoch());
 
-        storageManager.bootstrap(CONTAINER_ID, metadataStore).join();
+        storageManager.bootstrap(CONTAINER_ID).join();
         Assert.assertEquals(metadataStore, storageManager.getMetadataStore());
         Assert.assertEquals(storageProvider, storageManager.getChunkStorage());
         Assert.assertEquals(policy, storageManager.getConfig().getDefaultRollingPolicy());

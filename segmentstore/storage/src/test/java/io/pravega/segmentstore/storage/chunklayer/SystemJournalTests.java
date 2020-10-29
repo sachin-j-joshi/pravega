@@ -154,12 +154,12 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         long offset = 0;
 
         // Start container with epoch 1
-        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(storageProvider, executorService(), config);
+        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(storageProvider, metadataStoreBeforeCrash, executorService(), config);
 
         segmentStorage1.initialize(epoch);
 
         // Bootstrap
-        segmentStorage1.bootstrap(containerId, metadataStoreBeforeCrash).join();
+        segmentStorage1.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorage1);
 
         // Simulate some writes to system segment, this should cause some new chunks being added.
@@ -175,11 +175,11 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         // Start container with epoch 2
         epoch++;
 
-        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(storageProvider, executorService(), config);
+        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(storageProvider, metadataStoreAfterCrash, executorService(), config);
         segmentStorage2.initialize(epoch);
 
         // Bootstrap
-        segmentStorage2.bootstrap(containerId, metadataStoreAfterCrash).join();
+        segmentStorage2.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorage2);
 
         // Validate
@@ -213,12 +213,12 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         long offset = 0;
 
         // Epoch 1
-        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(chunkStorage, metadataStoreBeforeCrash, executorService(), config);
 
         segmentStorage1.initialize(epoch);
 
         // Bootstrap
-        segmentStorage1.bootstrap(containerId, metadataStoreBeforeCrash).join();
+        segmentStorage1.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorage1);
 
         // Simulate some writes to system segment, this should cause some new chunks being added.
@@ -232,11 +232,11 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         // Epoch 2
         epoch++;
 
-        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(chunkStorage, metadataStoreAfterCrash, executorService(), config);
         segmentStorage2.initialize(epoch);
 
         // Bootstrap
-        segmentStorage2.bootstrap(containerId, metadataStoreAfterCrash).join();
+        segmentStorage2.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorage2);
 
         val h2 = segmentStorage2.openWrite(systemSegmentName).join();
@@ -282,10 +282,10 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
             // Epoch 2
             epoch++;
             ChunkMetadataStore metadataStoreAfterCrash = getMetadataStore();
-            ChunkedSegmentStorage segmentStorageInLoop = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+            ChunkedSegmentStorage segmentStorageInLoop = new ChunkedSegmentStorage(chunkStorage, metadataStoreAfterCrash, executorService(), config);
             segmentStorageInLoop.initialize(epoch);
 
-            segmentStorageInLoop.bootstrap(containerId, metadataStoreAfterCrash).join();
+            segmentStorageInLoop.bootstrap(containerId).join();
             checkSystemSegmentsLayout(segmentStorageInLoop);
 
             val h = segmentStorageInLoop.openWrite(systemSegmentName).join();
@@ -308,10 +308,10 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         epoch++;
         ChunkMetadataStore metadataStoreFinal = getMetadataStore();
 
-        ChunkedSegmentStorage segmentStorageFinal = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+        ChunkedSegmentStorage segmentStorageFinal = new ChunkedSegmentStorage(chunkStorage, metadataStoreFinal, executorService(), config);
         segmentStorageFinal.initialize(epoch);
 
-        segmentStorageFinal.bootstrap(containerId, metadataStoreFinal).join();
+        segmentStorageFinal.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorageFinal);
 
         val info = segmentStorageFinal.getStreamSegmentInfo(systemSegmentName, null).join();
@@ -353,10 +353,10 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
             epoch++;
             ChunkMetadataStore metadataStoreAfterCrash = getMetadataStore();
 
-            ChunkedSegmentStorage segmentStorageInLoop = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+            ChunkedSegmentStorage segmentStorageInLoop = new ChunkedSegmentStorage(chunkStorage, metadataStoreAfterCrash, executorService(), config);
             segmentStorageInLoop.initialize(epoch);
 
-            segmentStorageInLoop.bootstrap(containerId, metadataStoreAfterCrash).join();
+            segmentStorageInLoop.bootstrap(containerId).join();
             checkSystemSegmentsLayout(segmentStorageInLoop);
 
             val h = segmentStorageInLoop.openWrite(systemSegmentName).join();
@@ -404,10 +404,10 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         epoch++;
         ChunkMetadataStore metadataStoreFinal = getMetadataStore();
 
-        ChunkedSegmentStorage segmentStorageFinal = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+        ChunkedSegmentStorage segmentStorageFinal = new ChunkedSegmentStorage(chunkStorage, metadataStoreFinal, executorService(), config);
         segmentStorageFinal.initialize(epoch);
 
-        segmentStorageFinal.bootstrap(containerId, metadataStoreFinal).join();
+        segmentStorageFinal.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorageFinal);
 
         val info = segmentStorageFinal.getStreamSegmentInfo(systemSegmentName, null).join();
@@ -489,11 +489,11 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         long offset = 0;
 
         // Epoch 1
-        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(chunkStorage, metadataStoreBeforeCrash, executorService(), config);
         segmentStorage1.initialize(epoch);
 
         // Bootstrap
-        segmentStorage1.bootstrap(containerId, metadataStoreBeforeCrash).join();
+        segmentStorage1.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorage1);
 
         // Simulate some writes to system segment, this should cause some new chunks being added.
@@ -510,10 +510,10 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         // Epoch 2
         epoch++;
 
-        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(chunkStorage, metadataStoreAfterCrash, executorService(), config);
         segmentStorage2.initialize(epoch);
 
-        segmentStorage2.bootstrap(containerId, metadataStoreAfterCrash).join();
+        segmentStorage2.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorage2);
 
         val h2 = segmentStorage2.openWrite(systemSegmentName).join();
@@ -557,10 +557,10 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         long offset = 0;
 
         // Epoch 1
-        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(chunkStorage, metadataStoreBeforeCrash, executorService(), config);
         segmentStorage1.initialize(epoch);
         // Bootstrap
-        segmentStorage1.bootstrap(containerId, metadataStoreBeforeCrash).join();
+        segmentStorage1.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorage1);
 
         // Simulate some writes to system segment, this should cause some new chunks being added.
@@ -575,10 +575,10 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         // Epoch 2
         epoch++;
 
-        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(chunkStorage, executorService(), config);
+        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(chunkStorage, metadataStoreAfterCrash, executorService(), config);
         segmentStorage2.initialize(epoch);
 
-        segmentStorage2.bootstrap(containerId, metadataStoreAfterCrash).join();
+        segmentStorage2.bootstrap(containerId).join();
         checkSystemSegmentsLayout(segmentStorage2);
 
         val h2 = segmentStorage2.openWrite(systemSegmentName).join();

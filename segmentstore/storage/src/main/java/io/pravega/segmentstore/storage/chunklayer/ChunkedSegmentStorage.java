@@ -69,10 +69,10 @@ public class ChunkedSegmentStorage implements Storage {
 
     /**
      * Metadata store containing all storage data.
-     * Initialized by segment container via {@link ChunkedSegmentStorage#bootstrap(int, ChunkMetadataStore)}.
+     * Initialized by segment container via {@link ChunkedSegmentStorage#bootstrap(int)}.
      */
     @Getter
-    private ChunkMetadataStore metadataStore;
+    private final ChunkMetadataStore metadataStore;
 
     /**
      * Underlying {@link ChunkStorage} to use to read and write data.
@@ -100,7 +100,7 @@ public class ChunkedSegmentStorage implements Storage {
 
     /**
      * Id of the current Container.
-     * Initialized by segment container via {@link ChunkedSegmentStorage#bootstrap(int, ChunkMetadataStore)}.
+     * Initialized by segment container via {@link ChunkedSegmentStorage#bootstrap(int)}.
      */
     @Getter
     private int containerId;
@@ -130,23 +130,6 @@ public class ChunkedSegmentStorage implements Storage {
     private String logPrefix;
 
     /**
-     * Creates a new instance of the {@link ChunkedSegmentStorage} class.
-     *
-     * @param chunkStorage ChunkStorage instance.
-     * @param executor     An Executor for async operations.
-     * @param config       Configuration options for this ChunkedSegmentStorage instance.
-     */
-    public ChunkedSegmentStorage(ChunkStorage chunkStorage, Executor executor, ChunkedSegmentStorageConfig config) {
-        this.config = Preconditions.checkNotNull(config, "config");
-        this.chunkStorage = Preconditions.checkNotNull(chunkStorage, "chunkStorage");
-        this.executor = Preconditions.checkNotNull(executor, "executor");
-        this.readIndexCache = new ReadIndexCache(config.getMaxIndexedSegments(),
-                config.getMaxIndexedChunksPerSegment(),
-                config.getMaxIndexedChunks());
-        this.closed = new AtomicBoolean(false);
-    }
-
-    /**
      * Creates a new instance of the ChunkedSegmentStorage class.
      *
      * @param chunkStorage  ChunkStorage instance.
@@ -168,14 +151,12 @@ public class ChunkedSegmentStorage implements Storage {
     /**
      * Initializes the ChunkedSegmentStorage and bootstrap the metadata about storage metadata segments by reading and processing the journal.
      *
-     * @param metadataStore Metadata store.
      * @param containerId   container id.
      * @throws Exception In case of any errors.
      */
-    public CompletableFuture<Void> bootstrap(int containerId, ChunkMetadataStore metadataStore) throws Exception {
+    public CompletableFuture<Void> bootstrap(int containerId) throws Exception {
         this.containerId = containerId;
         this.logPrefix = String.format("ChunkedSegmentStorage[%d]", containerId);
-        this.metadataStore = Preconditions.checkNotNull(metadataStore, "metadataStore");
         this.systemJournal = new SystemJournal(containerId,
                 epoch,
                 chunkStorage,
