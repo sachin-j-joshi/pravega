@@ -44,6 +44,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_CREATE_COUNT;
@@ -636,6 +637,36 @@ public class ChunkedSegmentStorage implements Storage {
             log.warn("Error during close", e);
         }
         this.closed.set(true);
+    }
+
+    public CompletableFuture<Void> check(String streamSegmentName) {
+        Preconditions.checkNotNull(streamSegmentName, "streamSegmentName");
+        return tryWith(metadataStore.beginTransaction(streamSegmentName),
+                txn -> txn.get(streamSegmentName)
+                        .thenComposeAsync(storageMetadata -> {
+                            SegmentMetadata segmentMetadata = (SegmentMetadata) storageMetadata;
+                            checkSegmentExists(streamSegmentName, segmentMetadata);
+                            final AtomicLong finalCount = new  AtomicLong(0);
+                            final AtomicLong finalLength = new  AtomicLong(0);
+                            // Do not check if this instance is no longer a owner
+                            if (segmentMetadata.getOwnerEpoch() > this.epoch) {
+                                return CompletableFuture.completedFuture(null);
+                            }
+                            return new ChunkIterator(this, txn, segmentMetadata)
+                                    .forEach((metadata, name) -> chunkStorage.getInfo(metadata.getName())
+                                            .thenApplyAsync(info -> {
+                                                Preconditions.checkState(info.getLength() >= metadata.getLength());
+                                                finalLength.addAndGet(metadata.getLength());
+                                                finalCount.getAndIncrement();
+                                                return null;
+                                            }))
+                                    .thenApplyAsync( v -> {
+                                        Preconditions.checkState(finalCount.get() == segmentMetadata.getChunkCount());
+                                        Preconditions.checkState(finalLength.get() == (segmentMetadata.getLength() - segmentMetadata.getFirstChunkStartOffset()));
+                                        return null;
+                                    });
+                        }, executor),
+                executor);
     }
 
     /**
