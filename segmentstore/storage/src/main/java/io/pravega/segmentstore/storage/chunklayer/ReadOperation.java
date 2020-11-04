@@ -42,17 +42,20 @@ class ReadOperation implements Callable<CompletableFuture<Integer>> {
     private final ChunkedSegmentStorage chunkedSegmentStorage;
     private final long traceId;
     private final Timer timer;
-    private volatile SegmentMetadata segmentMetadata;
-    private volatile int bytesRemaining;
-    private volatile int currentBufferOffset;
-    private volatile long currentOffset;
-    private volatile int totalBytesRead = 0;
-    private volatile long startOffsetForCurrentChunk;
-    private volatile String currentChunkName;
-    private volatile ChunkMetadata chunkToReadFrom = null;
-    private volatile boolean isLoopExited;
     private final AtomicInteger cntScanned = new AtomicInteger();
-    private volatile int bytesToRead;
+
+    static class State {
+        private SegmentMetadata segmentMetadata;
+        private int bytesRemaining;
+        private int currentBufferOffset;
+        private long currentOffset;
+        private int totalBytesRead = 0;
+        private long startOffsetForCurrentChunk;
+        private String currentChunkName;
+        private ChunkMetadata chunkToReadFrom = null;
+        private boolean isLoopExited;
+        private int bytesToRead;
+    }
 
     ReadOperation(ChunkedSegmentStorage chunkedSegmentStorage, SegmentHandle handle, long offset, byte[] buffer, int bufferOffset, int length) {
         this.handle = handle;
@@ -66,169 +69,176 @@ class ReadOperation implements Callable<CompletableFuture<Integer>> {
     }
 
     public CompletableFuture<Integer> call() {
+        val state = new State();
         // Validate preconditions.
-        checkPreconditions();
+        checkPreconditions(state);
         log.debug("{} read - started op={}, segment={}, offset={}, bytesRead={}.",
-                chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, totalBytesRead);
+                chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, state.totalBytesRead);
         val streamSegmentName = handle.getSegmentName();
         return ChunkedSegmentStorage.tryWith(chunkedSegmentStorage.getMetadataStore().beginTransaction(streamSegmentName),
                 txn -> txn.get(streamSegmentName)
-                        .thenComposeAsync(storageMetadata -> {
-                            segmentMetadata = (SegmentMetadata) storageMetadata;
-
+                        .thenApplyAsync(storageMetadata -> {
+                            state.segmentMetadata = (SegmentMetadata) storageMetadata;
+                            return state;
+                        }).thenComposeAsync(state0 -> {
                             // Validate preconditions.
-                            checkState();
+                            checkState(state0);
 
                             if (length == 0) {
                                 return CompletableFuture.completedFuture(0);
                             }
 
-                            return findChunkForOffset(txn)
-                                    .thenComposeAsync(v -> {
+                            return findChunkForOffset(state0, txn)
+                                    .thenComposeAsync(state1 -> {
                                         // Now read.
-                                        return readData(txn);
+                                        return readData(state1, txn);
                                     }, chunkedSegmentStorage.getExecutor())
                                     .exceptionally(ex -> {
-                                        log.debug("{} read - started op={}, segment={}, offset={}, bytesRead={}.",
-                                                chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, totalBytesRead);
+                                        //log.debug("{} read - started op={}, segment={}, offset={}, bytesRead={}.",
+                                        //        chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, state1.totalBytesRead);
                                         if (ex instanceof CompletionException) {
                                             throw (CompletionException) ex;
                                         }
                                         throw new CompletionException(ex);
                                     })
-                                    .thenApplyAsync(v -> {
-                                        logEnd();
-                                        return totalBytesRead;
+                                    .thenApplyAsync(state2 -> {
+                                        logEnd(state2);
+                                        return state2.totalBytesRead;
                                     }, chunkedSegmentStorage.getExecutor());
                         }, chunkedSegmentStorage.getExecutor()),
                 chunkedSegmentStorage.getExecutor());
     }
 
-    private void logEnd() {
+    private void logEnd(State state) {
         Duration elapsed = timer.getElapsed();
         SLTS_READ_LATENCY.reportSuccessEvent(elapsed);
         SLTS_READ_BYTES.add(length);
         if (chunkedSegmentStorage.getConfig().getLateWarningThresholdInMillis() < elapsed.toMillis()) {
             log.warn("{} read - late op={}, segment={}, offset={}, bytesRead={}, latency={}.",
-                    chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, totalBytesRead, elapsed.toMillis());
+                    chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, state.totalBytesRead, elapsed.toMillis());
         } else {
             log.debug("{} read - finished op={}, segment={}, offset={}, bytesRead={}, latency={}.",
-                    chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, totalBytesRead, elapsed.toMillis());
+                    chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, state.totalBytesRead, elapsed.toMillis());
         }
-        LoggerHelpers.traceLeave(log, "read", traceId, handle, offset, totalBytesRead);
+        LoggerHelpers.traceLeave(log, "read", traceId, handle, offset, state.totalBytesRead);
     }
 
-    private CompletableFuture<Void> readData(MetadataTransaction txn) {
+    private CompletableFuture<State> readData(State state, MetadataTransaction txn) {
         return Futures.loop(
-                () -> bytesRemaining > 0 && null != currentChunkName,
+                () -> state.bytesRemaining > 0 && null != state.currentChunkName,
                 () -> {
-                    bytesToRead = Math.min(bytesRemaining, Math.toIntExact(chunkToReadFrom.getLength() - (currentOffset - startOffsetForCurrentChunk)));
-                    if (currentOffset >= startOffsetForCurrentChunk + chunkToReadFrom.getLength()) {
+                    state.bytesToRead = Math.min(state.bytesRemaining, Math.toIntExact(state.chunkToReadFrom.getLength() - (state.currentOffset - state.startOffsetForCurrentChunk)));
+                    if (state.currentOffset >= state.startOffsetForCurrentChunk + state.chunkToReadFrom.getLength()) {
                         // The current chunk is over. Move to the next one.
-                        currentChunkName = chunkToReadFrom.getNextChunk();
-                        if (null != currentChunkName) {
-                            startOffsetForCurrentChunk += chunkToReadFrom.getLength();
-                            return txn.get(currentChunkName)
+                        state.currentChunkName = state.chunkToReadFrom.getNextChunk();
+                        if (null != state.currentChunkName) {
+                            state.startOffsetForCurrentChunk += state.chunkToReadFrom.getLength();
+                            return txn.get(state.currentChunkName)
                                     .thenApplyAsync(storageMetadata -> {
-                                        chunkToReadFrom = (ChunkMetadata) storageMetadata;
-                                        log.debug("{} read - reading from next chunk - segment={}, chunk={}", chunkedSegmentStorage.getLogPrefix(), handle.getSegmentName(), chunkToReadFrom);
+                                        state.chunkToReadFrom = (ChunkMetadata) storageMetadata;
+                                        log.debug("{} read - reading from next chunk - segment={}, chunk={}", chunkedSegmentStorage.getLogPrefix(), handle.getSegmentName(), state.chunkToReadFrom);
                                         return null;
                                     }, chunkedSegmentStorage.getExecutor());
                         }
                     } else {
-                        Preconditions.checkState(bytesToRead != 0, "bytesToRead is 0");
+                        Preconditions.checkState(state.bytesToRead != 0, "bytesToRead is 0");
                         // Read data from the chunk.
-                        return chunkedSegmentStorage.getChunkStorage().openRead(chunkToReadFrom.getName())
+                        return chunkedSegmentStorage.getChunkStorage().openRead(state.chunkToReadFrom.getName())
                                 .thenComposeAsync(chunkHandle ->
                                         chunkedSegmentStorage.getChunkStorage().read(chunkHandle,
-                                                currentOffset - startOffsetForCurrentChunk,
-                                                bytesToRead,
+                                                state.currentOffset - state.startOffsetForCurrentChunk,
+                                                state.bytesToRead,
                                                 buffer,
-                                                currentBufferOffset)
+                                                state.currentBufferOffset)
                                                 .thenApplyAsync(bytesRead -> {
-                                                    bytesRemaining -= bytesRead;
-                                                    currentOffset += bytesRead;
-                                                    currentBufferOffset += bytesRead;
-                                                    totalBytesRead += bytesRead;
+                                                    state.bytesRemaining -= bytesRead;
+                                                    state.currentOffset += bytesRead;
+                                                    state.currentBufferOffset += bytesRead;
+                                                    state.totalBytesRead += bytesRead;
                                                     return null;
                                                 }, chunkedSegmentStorage.getExecutor()),
                                         chunkedSegmentStorage.getExecutor());
                     }
                     return CompletableFuture.completedFuture(null);
-                }, chunkedSegmentStorage.getExecutor());
+                }, chunkedSegmentStorage.getExecutor())
+                .thenApplyAsync(v -> state);
     }
 
-    private CompletableFuture<Void> findChunkForOffset(MetadataTransaction txn) {
+    private CompletableFuture<State> findChunkForOffset(State state, MetadataTransaction txn) {
 
-        currentChunkName = segmentMetadata.getFirstChunk();
-        chunkToReadFrom = null;
+        state.currentChunkName = state.segmentMetadata.getFirstChunk();
+        state.chunkToReadFrom = null;
 
-        Preconditions.checkState(null != currentChunkName);
+        Preconditions.checkState(null != state.currentChunkName);
 
-        bytesRemaining = length;
-        currentBufferOffset = bufferOffset;
-        currentOffset = offset;
-        totalBytesRead = 0;
+        state.bytesRemaining = length;
+        state.currentBufferOffset = bufferOffset;
+        state.currentOffset = offset;
+        state.totalBytesRead = 0;
 
         // Find the first chunk that contains the data.
-        startOffsetForCurrentChunk = segmentMetadata.getFirstChunkStartOffset();
+        state.startOffsetForCurrentChunk = state.segmentMetadata.getFirstChunkStartOffset();
         val readIndexTimer = new Timer();
         // Find the name of the chunk in the cached read index that is floor to required offset.
         val floorEntry = chunkedSegmentStorage.getReadIndexCache().findFloor(handle.getSegmentName(), offset);
         if (null != floorEntry) {
-            startOffsetForCurrentChunk = floorEntry.getOffset();
-            currentChunkName = floorEntry.getChunkName();
+            state.startOffsetForCurrentChunk = floorEntry.getOffset();
+            state.currentChunkName = floorEntry.getChunkName();
         }
 
         // Navigate to the chunk that contains the first byte of requested data.
         return Futures.loop(
-                () -> currentChunkName != null && !isLoopExited,
-                () -> txn.get(currentChunkName)
+                () -> state.currentChunkName != null && !state.isLoopExited,
+                () -> txn.get(state.currentChunkName)
                         .thenApplyAsync(storageMetadata -> {
-                            chunkToReadFrom = (ChunkMetadata) storageMetadata;
-                            Preconditions.checkState(null != chunkToReadFrom, "chunkToReadFrom is null");
-                            if (startOffsetForCurrentChunk <= currentOffset
-                                    && startOffsetForCurrentChunk + chunkToReadFrom.getLength() > currentOffset) {
+                            state.chunkToReadFrom = (ChunkMetadata) storageMetadata;
+                                    return state;
+                                })
+                        .thenApplyAsync(state2 -> {
+                            Preconditions.checkState(null != state.chunkToReadFrom, "chunkToReadFrom is null");
+                            if (state.startOffsetForCurrentChunk <= state.currentOffset
+                                    && state.startOffsetForCurrentChunk + state.chunkToReadFrom.getLength() > state.currentOffset) {
                                 // we have found a chunk that contains first byte we want to read
                                 log.debug("{} read - found chunk to read - segment={}, chunk={}, startOffset={}, length={}, readOffset={}.",
-                                        chunkedSegmentStorage.getLogPrefix(), handle.getSegmentName(), chunkToReadFrom, startOffsetForCurrentChunk, chunkToReadFrom.getLength(), currentOffset);
-                                isLoopExited = true;
+                                        chunkedSegmentStorage.getLogPrefix(), handle.getSegmentName(), state.chunkToReadFrom, state.startOffsetForCurrentChunk, state.chunkToReadFrom.getLength(), state.currentOffset);
+                                state.isLoopExited = true;
                                 return null;
                             }
-                            currentChunkName = chunkToReadFrom.getNextChunk();
-                            startOffsetForCurrentChunk += chunkToReadFrom.getLength();
+                            state.currentChunkName = state.chunkToReadFrom.getNextChunk();
+                            state.startOffsetForCurrentChunk += state.chunkToReadFrom.getLength();
 
                             // Update read index with newly visited chunk.
-                            if (null != currentChunkName) {
-                                chunkedSegmentStorage.getReadIndexCache().addIndexEntry(handle.getSegmentName(), currentChunkName, startOffsetForCurrentChunk);
+                            if (null != state.currentChunkName) {
+                                chunkedSegmentStorage.getReadIndexCache().addIndexEntry(handle.getSegmentName(), state.currentChunkName, state.startOffsetForCurrentChunk);
                             }
                             cntScanned.incrementAndGet();
                             return null;
                         }, chunkedSegmentStorage.getExecutor())
-                        .thenApplyAsync(v -> {
+                        .thenApplyAsync(state3 -> {
                             val elapsed = readIndexTimer.getElapsed();
                             SLTS_READ_INDEX_SCAN_LATENCY.reportSuccessEvent(elapsed);
                             log.debug("{} read - chunk lookup - segment={}, offset={}, scanned={}, latency={}.",
                                     chunkedSegmentStorage.getLogPrefix(), handle.getSegmentName(), offset, cntScanned.get(), elapsed.toMillis());
                             return null;
                         }, chunkedSegmentStorage.getExecutor()),
-                chunkedSegmentStorage.getExecutor());
+                chunkedSegmentStorage.getExecutor())
+                .thenApplyAsync(v -> state);
     }
 
-    private void checkState() {
-        chunkedSegmentStorage.checkSegmentExists(handle.getSegmentName(), segmentMetadata);
+    private void checkState(State state) {
+        chunkedSegmentStorage.checkSegmentExists(handle.getSegmentName(), state.segmentMetadata);
 
-        segmentMetadata.checkInvariants();
+        state.segmentMetadata.checkInvariants();
 
-        Preconditions.checkArgument(offset < segmentMetadata.getLength(), "Offset %s is beyond the last offset %s of the segment %s.",
-                offset, segmentMetadata.getLength(), handle.getSegmentName());
+        Preconditions.checkArgument(offset < state.segmentMetadata.getLength(), "Offset %s is beyond the last offset %s of the segment %s.",
+                offset, state.segmentMetadata.getLength(), handle.getSegmentName());
 
-        if (offset < segmentMetadata.getStartOffset()) {
-            throw new CompletionException(new StreamSegmentTruncatedException(handle.getSegmentName(), segmentMetadata.getStartOffset(), offset));
+        if (offset < state.segmentMetadata.getStartOffset()) {
+            throw new CompletionException(new StreamSegmentTruncatedException(handle.getSegmentName(), state.segmentMetadata.getStartOffset(), offset));
         }
     }
 
-    private void checkPreconditions() {
+    private void checkPreconditions(State state) {
         Preconditions.checkNotNull(handle, "handle");
         Preconditions.checkNotNull(buffer, "buffer");
         Preconditions.checkNotNull(handle.getSegmentName(), "streamSegmentName");
