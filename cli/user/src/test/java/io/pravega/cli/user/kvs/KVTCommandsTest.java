@@ -15,10 +15,12 @@ import io.pravega.cli.user.TestUtils;
 import io.pravega.cli.user.scope.ScopeCommand;
 import io.pravega.shared.NameUtils;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.Collections;
 
+@Ignore
 public class KVTCommandsTest extends AbstractUserCommandTest {
 
     @Test(timeout = 10000)
