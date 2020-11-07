@@ -361,15 +361,9 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         testContext.chunkedSegmentStorage.initialize(2);
         int maxRollingLength = 1;
         testContext.insertMetadata(testSegmentName, maxRollingLength, OWNER_EPOCH);
-        testContext.insertMetadata("source", maxRollingLength, 1);
-        testContext.chunkedSegmentStorage.seal(SegmentStorageHandle.writeHandle("source"), null).join();
 
         // These operations should always succeed.
         testContext.chunkedSegmentStorage.getStreamSegmentInfo(testSegmentName, null).join();
-        val hr = testContext.chunkedSegmentStorage.openRead(testSegmentName).join();
-        testContext.chunkedSegmentStorage.read(hr, 0, new byte[0], 0, 0, null);
-
-        val hw = testContext.chunkedSegmentStorage.openWrite(testSegmentName);
 
         testContext.metadataStore.markFenced();
         AssertExtensions.assertFutureThrows(

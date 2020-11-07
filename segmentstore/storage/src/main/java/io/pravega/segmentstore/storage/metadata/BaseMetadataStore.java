@@ -46,8 +46,6 @@ import java.util.stream.Collectors;
 
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.COMMIT_LATENCY;
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.GET_LATENCY;
-import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.READ_LOCK_LATENCY;
-import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.WRITE_LOCK_LATENCY;
 
 /**
  * Implements base metadata store that provides core functionality of metadata store by encapsulating underlying key value store.
@@ -152,11 +150,6 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
      * Cache for reading and writing transaction data entries to underlying KV store.
      */
     private final Cache<String, TransactionData> cache;
-
-    /**
-     * {@link MultiKeyReaderWriterScheduler} instance.
-     */
-    private final MultiKeyReaderWriterScheduler scheduler = new MultiKeyReaderWriterScheduler();
 
     /**
      * Storage executor object.
@@ -274,24 +267,12 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
                     // Mark keys in transaction as active to prevent their eviction.
                     txn.getData().keySet().forEach(this::addToActiveKeySet);
 
-                    // Acquire a write lock over segment.
-                    val tLock = new Timer();
-                    //log.debug("Acquiring write lock for {}", txn.getKeysToLock());
-                    val writeLock = scheduler.getWriteLock(txn.getKeysToLock());
-                    return writeLock.lock()
-                            .thenComposeAsync(v0 -> {
-                                // Step 1 : If bufferedTxnData data was flushed, then read it back from external source and re-insert in bufferedTxnData buffer.
-                                val elapsed = tLock.getElapsed();
-                                WRITE_LOCK_LATENCY.reportSuccessEvent(t.getElapsed());
-                                //log.debug("Acquired write lock for {}, wait time: {} ms", txn.getKeysToLock());
-                                //log.debug("Acquired write wait time: {} ms", elapsed.toMillis());
-                                return loadMissingKeys(txn, skipStoreCheck, txnData);
-                            }, executor)
+                    // Step 1 : If bufferedTxnData data was flushed, then read it back from external source and re-insert in bufferedTxnData buffer.
+                    return loadMissingKeys(txn, skipStoreCheck, txnData)
                             .thenComposeAsync(v1 -> {
                                 // This check needs to be atomic, with absolutely no possibility of re-entry
                                 return performCommit(txn, lazyWrite, txnData, modifiedKeys, modifiedValues);
-                            }, executor)
-                            .whenCompleteAsync((v2, ex) -> writeLock.unlock(), executor);
+                            }, executor);
                 }, executor)
                 .thenRunAsync(() -> {
                     //  Step 5 : Mark transaction as commited.
@@ -526,18 +507,7 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
         // Prevent the key from getting evicted.
         addToActiveKeySet(key);
 
-        // Try to find it in buffer. Access buffer using reader lock.
-        val tLock = new Timer();
-        log.debug("Acquiring read lock for {}", key);
-        val readLock = scheduler.getReadLock(txn.getKeysToLock());
-        return readLock.lock()
-                .thenApplyAsync(v -> {
-                    val elapsed = tLock.getElapsed();
-                    READ_LOCK_LATENCY.reportSuccessEvent(t.getElapsed());
-                    log.debug("Acquired read lock for {}, wait time: {} ms",
-                            String.join(", ", txn.getKeysToLock()), elapsed.toMillis());
-                    return bufferedTxnData.get(key);
-                }, executor)
+        return CompletableFuture.supplyAsync(() -> bufferedTxnData.get(key), executor)
                 .thenApplyAsync(dataFromBuffer -> {
                     if (dataFromBuffer != null) {
                         // Make sure it is a deep copy.
@@ -549,7 +519,6 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
                     }
                     return null;
                 }, executor)
-                .whenCompleteAsync((v, ex) -> readLock.unlock(), executor)
                 .thenComposeAsync(retValue -> {
                     if (retValue != null) {
                         return CompletableFuture.completedFuture(retValue);
@@ -593,26 +562,10 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
         log.trace("Loading key from the store key = {}", key);
         return readFromStore(key)
                 .thenApplyAsync(this::makeCopyForBuffer, executor)
-                .thenComposeAsync(copyForBuffer -> {
+                .thenApplyAsync(copyForBuffer -> {
                     Preconditions.checkState(null != copyForBuffer);
                     Preconditions.checkState(null != copyForBuffer.getDbObject());
-                    if (!isReenterant) {
-                        val t = new Timer();
-                        log.debug("Acquiring write lock for {}", String.join(", ", txn.getKeysToLock()));
-                        val writeLock = scheduler.getWriteLock(txn.getKeysToLock());
-                        // Put this value in bufferedTxnData buffer.
-                        return writeLock.lock()
-                                .thenApplyAsync(lock -> {
-                                    val elapsed = t.getElapsed();
-                                    WRITE_LOCK_LATENCY.reportSuccessEvent(t.getElapsed());
-                                    log.debug("Acquired write lock for {}, wait time: {} ms",
-                                            String.join(", ", txn.getKeysToLock()), elapsed.toMillis());
-                                    return insertInBuffer(key, copyForBuffer);
-                                }, executor)
-                                .whenCompleteAsync((v, ex) -> writeLock.unlock(), executor);
-                    } else {
-                        return CompletableFuture.completedFuture(insertInBuffer(key, copyForBuffer));
-                    }
+                    return insertInBuffer(key, copyForBuffer);
                 }, executor);
     }
 

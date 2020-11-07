@@ -34,11 +34,14 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
+import javax.annotation.concurrent.GuardedBy;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.ConcurrentModificationException;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -136,6 +139,8 @@ public class ChunkedSegmentStorage implements Storage {
      */
     private final MultiKeySequentialProcessor<String> taskProcessor;
 
+    @GuardedBy("activeSegments")
+    private final HashSet<String> activeRequests = new HashSet<>();
 
     /**
      * Creates a new instance of the ChunkedSegmentStorage class.
@@ -174,9 +179,7 @@ public class ChunkedSegmentStorage implements Storage {
 
         // Now bootstrap
         log.debug("{} STORAGE BOOT: Started.", logPrefix);
-        return this.systemJournal.bootstrap(epoch).thenRunAsync(() -> {
-            log.debug("{} STORAGE BOOT: Ended.", logPrefix);
-        }, executor);
+        return this.systemJournal.bootstrap(epoch).thenRunAsync(() -> log.debug("{} STORAGE BOOT: Ended.", logPrefix), executor);
     }
 
     @Override
@@ -304,7 +307,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<SegmentHandle> create(String streamSegmentName, SegmentRollingPolicy rollingPolicy, Duration timeout) {
         checkInitialized();
-        return executeSerialized(() -> {
+        return executeExclusive(() -> {
             val traceId = LoggerHelpers.traceEnter(log, "create", streamSegmentName, rollingPolicy);
             val timer = new Timer();
 
@@ -365,7 +368,7 @@ public class ChunkedSegmentStorage implements Storage {
         if (null == handle.getSegmentName()) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("handle.segmentName"));
         }
-        return executeSerialized(new WriteOperation(this, handle, offset, data, length), handle.getSegmentName());
+        return executeExclusive(new WriteOperation(this, handle, offset, data, length), handle.getSegmentName());
     }
 
     /**
@@ -410,7 +413,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Void> seal(SegmentHandle handle, Duration timeout) {
         checkInitialized();
-        return executeSerialized(() -> {
+        return executeExclusive(() -> {
             val traceId = LoggerHelpers.traceEnter(log, "seal", handle);
             Preconditions.checkNotNull(handle, "handle");
             String streamSegmentName = handle.getSegmentName();
@@ -461,7 +464,7 @@ public class ChunkedSegmentStorage implements Storage {
             return CompletableFuture.failedFuture(new IllegalArgumentException("sourceSegment"));
         }
 
-        return executeSerialized(new ConcatOperation(this, targetHandle, offset, sourceSegment), targetHandle.getSegmentName(), sourceSegment);
+        return executeExclusive(new ConcatOperation(this, targetHandle, offset, sourceSegment), targetHandle.getSegmentName(), sourceSegment);
     }
 
     boolean shouldAppend() {
@@ -493,7 +496,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Void> delete(SegmentHandle handle, Duration timeout) {
         checkInitialized();
-        return executeSerialized(() -> {
+        return executeExclusive(() -> {
             val traceId = LoggerHelpers.traceEnter(log, "delete", handle);
             val timer = new Timer();
 
@@ -552,7 +555,7 @@ public class ChunkedSegmentStorage implements Storage {
             return CompletableFuture.failedFuture(new IllegalArgumentException("handle.segmentName"));
         }
 
-        return executeSerialized(new TruncateOperation(this, handle, offset), handle.getSegmentName());
+        return executeExclusive(new TruncateOperation(this, handle, offset), handle.getSegmentName());
     }
 
     @Override
@@ -607,13 +610,13 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Integer> read(SegmentHandle handle, long offset, byte[] buffer, int bufferOffset, int length, Duration timeout) {
         checkInitialized();
-        return executeSerialized(new ReadOperation(this, handle, offset, buffer, bufferOffset, length), handle.getSegmentName());
+        return executeConcurrently(new ReadOperation(this, handle, offset, buffer, bufferOffset, length), handle.getSegmentName());
     }
 
     @Override
     public CompletableFuture<SegmentProperties> getStreamSegmentInfo(String streamSegmentName, Duration timeout) {
         checkInitialized();
-        return executeSerialized(() -> {
+        return executeConcurrently(() -> {
             val traceId = LoggerHelpers.traceEnter(log, "getStreamSegmentInfo", streamSegmentName);
             Preconditions.checkNotNull(streamSegmentName, "streamSegmentName");
             return tryWith(metadataStore.beginTransaction(streamSegmentName), txn ->
@@ -641,7 +644,7 @@ public class ChunkedSegmentStorage implements Storage {
     @Override
     public CompletableFuture<Boolean> exists(String streamSegmentName, Duration timeout) {
         checkInitialized();
-        return executeSerialized(() -> {
+        return executeConcurrently(() -> {
             val traceId = LoggerHelpers.traceEnter(log, "exists", streamSegmentName);
             Preconditions.checkNotNull(streamSegmentName, "streamSegmentName");
             return tryWith(metadataStore.beginTransaction(streamSegmentName),
@@ -680,7 +683,48 @@ public class ChunkedSegmentStorage implements Storage {
      * */
     private <R> CompletableFuture<R> executeSerialized(Callable<CompletableFuture<R>> operation, String... segmentNames) {
         Exceptions.checkNotClosed(this.closed.get(), this);
-        return this.taskProcessor.add(Arrays.asList(segmentNames), () -> executeAsync(operation));
+        return this.taskProcessor.add(Arrays.asList(segmentNames), () -> executeExclusive(operation));
+    }
+
+    /**
+     * Executes the given Callable asynchronously and exclusively.
+     * It returns a CompletableFuture that will be completed with the result.
+     * The operations are not allowed to be concurrent.
+     *
+     * @param operation    The Callable to execute.
+     * @param <R>       Return type of the operation.
+     * @param segmentNames The names of the Segments involved in this operation (for sequencing purposes).
+     * @return A CompletableFuture that, when completed, will contain the result of the operation.
+     * If the operation failed, it will contain the cause of the failure.
+     * */
+    private <R> CompletableFuture<R> executeExclusive(Callable<CompletableFuture<R>> operation, String... segmentNames) {
+        acquire(segmentNames);
+        return CompletableFuture.completedFuture(null).thenComposeAsync(v -> {
+            Exceptions.checkNotClosed(this.closed.get(), this);
+            try {
+                return operation.call();
+            } catch (CompletionException e) {
+                throw new CompletionException(Exceptions.unwrap(e));
+            } catch (Exception e) {
+                throw new CompletionException(e);
+            }
+        }, this.executor)
+        .whenCompleteAsync((v, e) -> release(segmentNames), this.executor);
+    }
+
+    /**
+     * Executes the given Callable asynchronously and concurrently.
+     * It returns a CompletableFuture that will be completed with the result.
+     * The operations are serialized on the segmentNames provided.
+     *
+     * @param operation    The Callable to execute.
+     * @param <R>       Return type of the operation.
+     * @param segmentNames The names of the Segments involved in this operation (for sequencing purposes).
+     * @return A CompletableFuture that, when completed, will contain the result of the operation.
+     * If the operation failed, it will contain the cause of the failure.
+     * */
+    private <R> CompletableFuture<R> executeConcurrently(Callable<CompletableFuture<R>> operation, String... segmentNames) {
+        return executeAsync(operation);
     }
 
     /**
@@ -701,6 +745,36 @@ public class ChunkedSegmentStorage implements Storage {
                 throw new CompletionException(e);
             }
         }, this.executor);
+    }
+
+    /**
+     * Removes the given segments from exclusion list.
+     *
+     * @param segmentNames The names of the Segments involved in this operation (for sequencing purposes).
+     */
+    private void acquire(String... segmentNames) {
+        synchronized (activeRequests) {
+            for (String segmentName : segmentNames) {
+                if (activeRequests.contains(segmentName)) {
+                    log.error("{} Concurrent modifications for Segment={}", logPrefix, segmentName);
+                    throw new ConcurrentModificationException(String.format("Concurrent modifications not allowed. Segment=%s", segmentName));
+                }
+            }
+            activeRequests.addAll(Arrays.asList(segmentNames));
+        }
+    }
+
+    /**
+     * Removes the given segments from exclusion list.
+     *
+     * @param segmentNames The names of the Segments involved in this operation (for sequencing purposes).
+     */
+    private void release(String... segmentNames) {
+        synchronized (activeRequests) {
+            for (String segmentName : segmentNames) {
+                activeRequests.remove(segmentName);
+            }
+        }
     }
 
     static <T extends AutoCloseable, R> CompletableFuture<R> tryWith(T closeable, Function<T, CompletableFuture<R>> function, Executor executor) {
@@ -732,7 +806,7 @@ public class ChunkedSegmentStorage implements Storage {
         }
     }
 
-    final private void checkInitialized() {
+    private void checkInitialized() {
         Preconditions.checkState(null != this.metadataStore);
         Preconditions.checkState(0 != this.epoch);
         Preconditions.checkState(!closed.get());
