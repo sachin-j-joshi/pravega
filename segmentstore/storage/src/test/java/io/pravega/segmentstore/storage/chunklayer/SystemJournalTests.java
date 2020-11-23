@@ -31,6 +31,7 @@ import org.junit.rules.Timeout;
 import java.io.ByteArrayInputStream;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.function.Consumer;
 
 /**
  * Tests for testing bootstrap functionality with {@link SystemJournal}.
@@ -258,6 +259,79 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
     }
 
     /**
+     * Tests a scenario when journal chunks may be partially written during failure.
+     *
+     * @throws Exception Throws exception in case of any error.
+     */
+    @Test
+    public void testSimpleBootstrapWithPartialDataWrite() throws Exception {
+        ChunkStorage chunkStorage = getChunkStorage();
+        if (!chunkStorage.supportsAppend()) {
+            return;
+        }
+
+        ChunkMetadataStore metadataStore = getMetadataStore();
+        ChunkMetadataStore metadataStoreAfterCrash = getMetadataStore();
+        int containerId = 42;
+        String systemSegmentName = SystemJournal.getChunkStorageSystemSegments(containerId)[0];
+        long epoch = 1;
+        val policy = new SegmentRollingPolicy(4);
+        val config = ChunkedSegmentStorageConfig.DEFAULT_CONFIG.toBuilder().defaultRollingPolicy(policy).build();
+
+        long offset = 0;
+
+        // Epoch 1
+        ChunkedSegmentStorage segmentStorage1 = new ChunkedSegmentStorage(containerId, chunkStorage, metadataStore, executorService(), config);
+
+        segmentStorage1.initialize(epoch);
+
+        // Bootstrap
+        segmentStorage1.bootstrap().join();
+        checkSystemSegmentsLayout(segmentStorage1);
+
+        // Simulate some writes to system segment, this should cause some new chunks being added.
+        val h = segmentStorage1.openWrite(systemSegmentName).join();
+        val b1 = "Hello".getBytes();
+        segmentStorage1.write(h, offset, new ByteArrayInputStream(b1), b1.length, null).join();
+        offset += b1.length;
+
+        // Inject a fault by adding some garbage at the end
+        checkSystemSegmentsLayout(segmentStorage1);
+        val chunkFileName = NameUtils.getSystemJournalFileName(segmentStorage1.getSystemJournal().getContainerId(),
+                segmentStorage1.getSystemJournal().getEpoch(),
+                segmentStorage1.getSystemJournal().getCurrentFileIndex());
+        val chunkInfo = chunkStorage.getInfo(chunkFileName);
+        chunkStorage.write(ChunkHandle.writeHandle(chunkFileName), chunkInfo.get().getLength(), 1, new ByteArrayInputStream(new byte[1])).get();
+
+        // This next write will encounter partially written chunk and is expected to start a new chunk.
+        val b2 = " World".getBytes();
+        segmentStorage1.write(h, offset, new ByteArrayInputStream(b2), b2.length, null).join();
+        offset += b2.length;
+
+        checkSystemSegmentsLayout(segmentStorage1);
+
+        // Step 2
+        // Start container with epoch 2
+        epoch++;
+
+        ChunkedSegmentStorage segmentStorage2 = new ChunkedSegmentStorage(containerId, chunkStorage, metadataStoreAfterCrash, executorService(), config);
+        segmentStorage2.initialize(epoch);
+
+        // Bootstrap
+        segmentStorage2.bootstrap().join();
+        checkSystemSegmentsLayout(segmentStorage2);
+
+        // Validate
+        val info = segmentStorage2.getStreamSegmentInfo(systemSegmentName, null).join();
+        Assert.assertEquals(b1.length + b2.length, info.getLength());
+        byte[] out = new byte[b1.length + b2.length];
+        val hr = segmentStorage2.openRead(systemSegmentName).join();
+        segmentStorage2.read(hr, 0, out, 0, b1.length + b2.length, null).join();
+        Assert.assertEquals("Hello World", new String(out));
+    }
+
+
+    /**
      * Tests a scenario when there are multiple fail overs overs.
      * The test adds a few chunks to the system segments and then fails over.
      * After fail over the zombie instances continue to write junk data to both system segment and journal file.
@@ -267,9 +341,12 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
      */
     @Test
     public void testSimpleBootstrapWithMultipleFailovers() throws Exception {
+        val containerId = 42;
         ChunkStorage chunkStorage = getChunkStorage();
+        testSimpleBootstrapWithMultipleFailovers(containerId, chunkStorage, null);
+    }
 
-        int containerId = 42;
+    private void testSimpleBootstrapWithMultipleFailovers(int containerId, ChunkStorage chunkStorage, Consumer<Long> faultInjection) throws Exception {
         String systemSegmentName = SystemJournal.getChunkStorageSystemSegments(containerId)[0];
         long epoch = 0;
         val policy = new SegmentRollingPolicy(100);
@@ -305,7 +382,12 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
             oldHandle = h;
         }
 
+        if (null != faultInjection) {
+            faultInjection.accept(epoch);
+        }
+
         epoch++;
+
         ChunkMetadataStore metadataStoreFinal = getMetadataStore();
 
         ChunkedSegmentStorage segmentStorageFinal = new ChunkedSegmentStorage(containerId, chunkStorage, metadataStoreFinal, executorService(), config);
@@ -322,6 +404,35 @@ public class SystemJournalTests extends ThreadPooledTestSuite {
         val expected = "Test1Test2Test3Test4Test5Test6Test7Test8Test9";
         val actual = new String(out);
         Assert.assertEquals(expected, actual);
+    }
+
+    @Test
+    public void testSimpleBootstrapWithIncompleteSnapshot() throws Exception {
+        val containerId = 42;
+        ChunkStorage chunkStorage = getChunkStorage();
+        testSimpleBootstrapWithMultipleFailovers(containerId, chunkStorage, epoch -> {
+            val snapShotFile = NameUtils.getSystemJournalFileName(containerId, epoch, 0);
+            val size = 1;
+            if (chunkStorage.supportsTruncation()) {
+                chunkStorage.truncate(ChunkHandle.writeHandle(snapShotFile), size).join();
+            } else {
+                val bytes = new byte[size];
+                chunkStorage.read(ChunkHandle.readHandle(snapShotFile), 0, size, bytes, 0).join();
+                chunkStorage.delete(ChunkHandle.writeHandle(snapShotFile)).join();
+                val h = chunkStorage.create(snapShotFile).join();
+                chunkStorage.write(h, 0, size, new ByteArrayInputStream(bytes)).join();
+            }
+        });
+    }
+
+    @Test
+    public void testSimpleBootstrapWithMissingSnapshot() throws Exception {
+        val containerId = 42;
+        ChunkStorage chunkStorage = getChunkStorage();
+        testSimpleBootstrapWithMultipleFailovers(containerId, chunkStorage, epoch -> {
+            val snapShotFile = NameUtils.getSystemJournalFileName(containerId, epoch, 0);
+            chunkStorage.delete(ChunkHandle.writeHandle(snapShotFile)).join();
+        });
     }
 
     /**
