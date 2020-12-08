@@ -550,6 +550,9 @@ class SegmentAttributeBTreeIndex implements AttributeIndex, CacheManager.Client,
             } else if (pr.length < length) {
                 // Somehow the previous request wanted to read less than us. This shouldn't be the case, yet it is
                 // a situation we should handle. In his case, we will not be recording the PendingRead.
+                log.warn("{}: DUPLICATE offset={}, existing length={} , required length={}", this.traceObjectId,
+                        offset, pr.length, length);
+
                 pr = new PendingRead(offset, length);
             } else {
                 // Piggyback on the existing read.
