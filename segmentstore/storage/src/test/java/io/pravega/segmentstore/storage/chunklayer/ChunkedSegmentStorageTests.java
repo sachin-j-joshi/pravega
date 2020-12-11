@@ -1937,10 +1937,11 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         @Cleanup
         CleanupHelper cleanupHelper = new CleanupHelper();
         String testSegmentName = "foo";
-        @Cleanup
-        TestContext testContext = getTestContext();
+        val config = ChunkedSegmentStorageConfig.DEFAULT_CONFIG.toBuilder()
+                .garbageCollectionDelay(Duration.ZERO)
+                .build();
+        TestContext testContext = getTestContext(config);
         cleanupHelper.add(testContext);
-
         // Create
         testContext.chunkedSegmentStorage.create(testSegmentName, null).get();
 
@@ -1968,6 +1969,8 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         // Make sure to open segment with new instance before writing garbage to old instance.
         hWrite = newTestContext.chunkedSegmentStorage.openWrite(testSegmentName).get();
         newTestContext.chunkedSegmentStorage.truncate(hWrite, offset, null).get();
+        newTestContext.chunkedSegmentStorage.getGarbageCollector().setSuspended(true);
+        newTestContext.chunkedSegmentStorage.getGarbageCollector().deleteGarbage(false, 100).get();
         //checkDataRead(testSegmentName, testContext, offset, 0);
         TestUtils.checkSegmentBounds(newTestContext.metadataStore, testSegmentName, offset, offset);
 
@@ -1977,6 +1980,7 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         AssertExtensions.assertFutureThrows("openRead() allowed after fencing",
                 oldTestCotext.chunkedSegmentStorage.openRead(testSegmentName),
                 ex -> ex instanceof StorageNotPrimaryException);
+
     }
 
     // Very useful test, but takes couple seconds.
@@ -2440,6 +2444,7 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
                             .length(chunkLengths[i])
                             .nextChunk(i == chunkLengths.length - 1 ? null : testSegmentName + "_chunk_" + Integer.toString(i + 1))
                             .build();
+                    chunkMetadata.setActive(true);
                     length += chunkLengths[i];
                     txn.create(chunkMetadata);
 
