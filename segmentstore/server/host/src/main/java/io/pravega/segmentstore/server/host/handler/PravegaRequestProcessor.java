@@ -657,11 +657,23 @@ public class PravegaRequestProcessor extends FailingRequestProcessor implements 
         val timer = new Timer();
         tableStore.put(segment, entries, updateTableEntries.getTableSegmentOffset(), TIMEOUT)
                 .thenAccept(versions -> {
+                    log.debug(updateTableEntries.getRequestId(), "Update Table Segment Entries Sending reply: Segment={}, Offset={}, Count={}.",
+                            updateTableEntries.getSegment(), updateTableEntries.getTableSegmentOffset(), updateTableEntries.getTableEntries().getEntries().size());
+
                     connection.send(new WireCommands.TableEntriesUpdated(updateTableEntries.getRequestId(), versions));
                     this.tableStatsRecorder.updateEntries(updateTableEntries.getSegment(), entries.size(), conditional.get(), timer.getElapsed());
+
+                    log.debug(updateTableEntries.getRequestId(), "Update Table Segment Entries reply sent: Segment={}, Offset={}, Count={}.",
+                            updateTableEntries.getSegment(), updateTableEntries.getTableSegmentOffset(), updateTableEntries.getTableEntries().getEntries().size());
+
                 })
                 .exceptionally(e -> handleException(updateTableEntries.getRequestId(), segment, updateTableEntries.getTableSegmentOffset(), operation, e))
-                .whenComplete((r, ex) -> updateTableEntries.release());
+                .whenComplete((r, ex) -> {
+                    log.debug(updateTableEntries.getRequestId(), "Update Table Segment Entries Finished: Segment={}, Offset={}, Count={}.",
+                            updateTableEntries.getSegment(), updateTableEntries.getTableSegmentOffset(), updateTableEntries.getTableEntries().getEntries().size());
+
+                    updateTableEntries.release();
+                });
     }
 
     @Override
