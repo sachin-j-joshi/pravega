@@ -257,7 +257,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
             S3ObjectMetadata metadata = new S3ObjectMetadata();
             metadata.setContentLength((long) 0);
 
-            PutObjectRequest request = new PutObjectRequest(config.getBucket(), getObjectPath(chunkName), null);
+            PutObjectRequest request = new PutObjectRequest(config.getBucket(), getObjectPath(chunkName), null).withObjectMetadata(metadata);
 
             AccessControlList acl = new AccessControlList();
             acl.addGrants(new Grant(new CanonicalUser(config.getAccessKey(), config.getAccessKey()), Permission.FULL_CONTROL));
