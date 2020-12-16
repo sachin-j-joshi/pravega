@@ -27,14 +27,17 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
+import javax.annotation.concurrent.GuardedBy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.TABLE_GET_LATENCY;
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.TABLE_WRITE_LATENCY;
@@ -58,6 +61,8 @@ public class TableBasedMetadataStore extends BaseMetadataStore {
     private final Duration timeout = Duration.ofSeconds(30);
     private final AtomicBoolean isTableInitialized = new AtomicBoolean(false);
     private final BaseMetadataStore.TransactionData.TransactionDataSerializer serializer = new BaseMetadataStore.TransactionData.TransactionDataSerializer();
+    @GuardedBy("concurrencyGuard")
+    private final HashSet<String> concurrencyGuard = new HashSet<>();
 
     /**
      * Constructor.
@@ -92,7 +97,8 @@ public class TableBasedMetadataStore extends BaseMetadataStore {
                                 if (null != entry) {
                                     val arr = entry.getValue();
                                     TransactionData txnData = serializer.deserialize(arr);
-                                    txnData.setDbObject(entry.getKey().getVersion());
+                                    // Ignore any version.
+                                    txnData.setDbObject(TableKey.NO_VERSION);
                                     txnData.setPersisted(true);
                                     TABLE_GET_LATENCY.reportSuccessEvent(t.getElapsed());
                                     return txnData;
@@ -125,12 +131,11 @@ public class TableBasedMetadataStore extends BaseMetadataStore {
         val deletedKeyToTxnDataMap = new HashMap<TableKey, TransactionData>();
         val keysToDelete = new ArrayList<TableKey>();
         val t = new Timer();
+        val keys = dataList.stream().map(TransactionData::getKey).collect(Collectors.toList());
         return ensureInitialized()
                 .thenRunAsync(() -> {
                     for (TransactionData txnData : dataList) {
                         Preconditions.checkState(null != txnData.getDbObject(), "Missing tracking object");
-
-                        val version = (Long) txnData.getDbObject();
                         if (null == txnData.getValue()) {
                             val toDelete = TableKey.unversioned(new ByteArraySegment(txnData.getKey().getBytes(Charsets.UTF_8)));
                             keysToDelete.add(toDelete);
@@ -139,16 +144,17 @@ public class TableBasedMetadataStore extends BaseMetadataStore {
 
                         try {
                             val arraySegment = serializer.serialize(txnData);
-                            TableEntry tableEntry = TableEntry.versioned(
+                            // Ignore version.
+                            TableEntry tableEntry = TableEntry.unversioned(
                                     new ByteArraySegment(txnData.getKey().getBytes(Charsets.UTF_8)),
-                                    arraySegment,
-                                    version);
+                                    arraySegment);
                             entryToTxnDataMap.put(tableEntry, txnData);
                             toUpdate.add(tableEntry);
                         } catch (Exception e) {
                             throw new CompletionException(handleException(e));
                         }
                     }
+                    acquire(keys);
                 }, getExecutor())
                 .thenComposeAsync(v -> {
                     // Now put uploaded keys.
@@ -176,7 +182,8 @@ public class TableBasedMetadataStore extends BaseMetadataStore {
                 .exceptionally(e -> {
                     val ex = Exceptions.unwrap(e);
                     throw new CompletionException(handleException(ex));
-                });
+                })
+                .whenCompleteAsync((v, e) -> release(keys));
     }
 
     private StorageMetadataException handleException(Throwable ex) {
@@ -225,4 +232,20 @@ public class TableBasedMetadataStore extends BaseMetadataStore {
     static void copyVersion(TableBasedMetadataStore from, TableBasedMetadataStore to) {
         to.setVersion(from.getVersion());
     }
+
+    private void acquire(Collection<String> keys) {
+        synchronized (concurrencyGuard) {
+            keys.forEach( key -> Preconditions.checkState(!concurrencyGuard.contains(key),
+                    String.format("Concurrent modifications not allowed. Key=%s", key)));
+            // Now that we have validated, mark all keys as "locked".
+            concurrencyGuard.addAll(keys);
+        }
+    }
+
+    private void release(Collection<String> keys) {
+        synchronized (concurrencyGuard) {
+            keys.forEach(concurrencyGuard::remove);
+        }
+    }
+
 }
