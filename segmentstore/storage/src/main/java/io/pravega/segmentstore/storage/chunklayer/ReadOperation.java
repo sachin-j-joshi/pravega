@@ -23,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -120,6 +121,7 @@ class ReadOperation implements Callable<CompletableFuture<Integer>> {
     }
 
     private CompletableFuture<Void> readData(MetadataTransaction txn) {
+        val chunkReadFutures = new ArrayList<CompletableFuture<Void>>();
         return Futures.loop(
                 () -> bytesRemaining.get() > 0 && null != currentChunkName,
                 () -> {
@@ -140,24 +142,67 @@ class ReadOperation implements Callable<CompletableFuture<Integer>> {
                         }
                     } else {
                         Preconditions.checkState(bytesToRead != 0, "bytesToRead is 0");
+                        log.trace("{} read - reading chunk - op={}, segment={}, chunk={} offset={} length={} bufferOffset={}",
+                                chunkedSegmentStorage.getLogPrefix(),
+                                System.identityHashCode(this), handle.getSegmentName(),
+                                chunkToReadFrom.getName(),
+                                currentOffset.get() - startOffsetForCurrentChunk.get(),
+                                bytesToRead,
+                                currentBufferOffset.get());
                         // Read data from the chunk.
-                        return chunkedSegmentStorage.getChunkStorage().openRead(chunkToReadFrom.getName())
-                                .thenComposeAsync(chunkHandle ->
-                                        chunkedSegmentStorage.getChunkStorage().read(chunkHandle,
-                                                currentOffset.get() - startOffsetForCurrentChunk.get(),
-                                                bytesToRead,
-                                                buffer,
-                                                currentBufferOffset.get())
-                                                .thenAcceptAsync(bytesRead -> {
-                                                    bytesRemaining.addAndGet(-bytesRead);
-                                                    currentOffset.addAndGet(bytesRead);
-                                                    currentBufferOffset.addAndGet(bytesRead);
-                                                    totalBytesRead.addAndGet(bytesRead);
-                                                }, chunkedSegmentStorage.getExecutor()),
-                                        chunkedSegmentStorage.getExecutor());
+                        return readChunk(chunkReadFutures,
+                                    chunkToReadFrom.getName(),
+                                currentOffset.get() - startOffsetForCurrentChunk.get(),
+                                    bytesToRead,
+                                    currentBufferOffset.get())
+                                .thenAcceptAsync(bytesRead -> {
+                                    log.trace("{} read - done reading chunk - op={}, segment={}, chunk={} offset={} length={} bufferOffset={}",
+                                            chunkedSegmentStorage.getLogPrefix(),
+                                            System.identityHashCode(this), handle.getSegmentName(),
+                                            chunkToReadFrom.getName(),
+                                            currentOffset.get() - startOffsetForCurrentChunk.get(),
+                                            bytesToRead,
+                                            currentBufferOffset.get());
+                                    bytesRemaining.addAndGet(-bytesRead);
+                                    currentOffset.addAndGet(bytesRead);
+                                    currentBufferOffset.addAndGet(bytesRead);
+                                    totalBytesRead.addAndGet(bytesRead);
+                                }, chunkedSegmentStorage.getExecutor());
                     }
                     return CompletableFuture.completedFuture(null);
-                }, chunkedSegmentStorage.getExecutor());
+                }, chunkedSegmentStorage.getExecutor())
+                .thenComposeAsync( v -> Futures.allOf(chunkReadFutures));
+    }
+
+    private CompletableFuture<Integer> readChunk(ArrayList<CompletableFuture<Void>> array,
+                                                 String chunkName,
+                                                 long fromOffset,
+                                                 int bytesToRead,
+                                                 int bufferOffset) {
+        val chunkBytesRemaining = new AtomicInteger(bytesToRead);
+        val chunkFromOffset = new AtomicLong(fromOffset);
+        val chunkBufferOffset = new AtomicInteger(bufferOffset);
+        // Create parallel requests to read each chunk.
+        // Also, technically it is possible that multiple read requests are issued for given chunk.
+        array.add( CompletableFuture.completedFuture(null)
+                .thenComposeAsync(j -> chunkedSegmentStorage.getChunkStorage().openRead(chunkName), chunkedSegmentStorage.getExecutor())
+                .thenComposeAsync( chunkHandle ->
+                            Futures.loop(
+                                    () -> chunkBytesRemaining.get() > 0 && null != currentChunkName,
+                                    () -> chunkedSegmentStorage.getChunkStorage().read(chunkHandle,
+                                            chunkFromOffset.get(),
+                                            chunkBytesRemaining.get(),
+                                            buffer,
+                                            chunkBufferOffset.get())
+                                            .thenAccept(n -> {
+                                                Preconditions.checkState(n != 0, "Zero bytes read");
+                                                chunkBytesRemaining.addAndGet(-n);
+                                                chunkFromOffset.addAndGet(n);
+                                                chunkBufferOffset.addAndGet(n);
+                                            }),
+                                    chunkedSegmentStorage.getExecutor()
+                            ), chunkedSegmentStorage.getExecutor()));
+        return  CompletableFuture.completedFuture(bytesToRead);
     }
 
     private CompletableFuture<Void> findChunkForOffset(MetadataTransaction txn) {
