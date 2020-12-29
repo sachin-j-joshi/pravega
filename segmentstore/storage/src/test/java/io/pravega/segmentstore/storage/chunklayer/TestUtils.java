@@ -11,13 +11,16 @@ package io.pravega.segmentstore.storage.chunklayer;
 
 import io.pravega.segmentstore.storage.metadata.ChunkMetadata;
 import io.pravega.segmentstore.storage.metadata.ChunkMetadataStore;
+import io.pravega.segmentstore.storage.metadata.ReadIndexBlockMetadata;
 import io.pravega.segmentstore.storage.metadata.SegmentMetadata;
 import io.pravega.segmentstore.storage.metadata.StorageMetadata;
+import io.pravega.shared.NameUtils;
 import lombok.val;
 import org.junit.Assert;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.TreeMap;
 
 /**
  * Test utility.
@@ -107,6 +110,48 @@ public class TestUtils {
         Assert.assertEquals(expectedLengths.length, i);
         Assert.assertEquals(expectedLength, segmentMetadata.getLength());
         Assert.assertEquals(expectedLengths.length, segmentMetadata.getChunkCount());
+    }
+
+    /**
+     * Checks the existence of read index block metadata records for given segment.
+     * @param metadataStore  Metadata store to query.
+     * @param segmentName    Name of the segment.
+     * @param blockSize      Size of the block.
+     * @param startOffset    Start offset of the segment.
+     * @param endOffset      End offset of the segment.
+     * @throws Exception Exceptions are thrown in case of any errors.
+     */
+    public static void checkBlockIndexEntries(ChunkMetadataStore metadataStore, String segmentName, long blockSize, long startOffset, long endOffset) throws Exception {
+        try (val txn = metadataStore.beginTransaction(true, new String[] {segmentName})) {
+
+            val segmentMetadata = (SegmentMetadata) txn.get(segmentName).get();
+            Assert.assertNotNull(segmentMetadata);
+            TreeMap<Long, String> index = new TreeMap<>();
+            String current = segmentMetadata.getFirstChunk();
+            long offset = segmentMetadata.getFirstChunkStartOffset();
+            while (null != current) {
+                val chunk = (ChunkMetadata) txn.get(current).get();
+                Assert.assertNotNull(chunk);
+                index.put(offset, chunk.getName());
+                offset += chunk.getLength();
+                current = chunk.getNextChunk();
+            }
+
+            long blockStartOffset;
+            for (blockStartOffset = 0; blockStartOffset < startOffset; blockStartOffset +=  blockSize) {
+                Assert.assertNull("for offset:" + blockStartOffset, txn.get(NameUtils.getSegmentReadIndexBlockName(segmentName, blockStartOffset)).get());
+            }
+            for (; blockStartOffset < endOffset; blockStartOffset +=  blockSize) {
+                if (segmentMetadata.getStartOffset() < blockStartOffset) {
+                    val blockIndexEntry = (ReadIndexBlockMetadata) txn.get(NameUtils.getSegmentReadIndexBlockName(segmentName, blockStartOffset)).get();
+                    Assert.assertNotNull("for offset:" + blockStartOffset, blockIndexEntry);
+                    Assert.assertNotNull("for offset:" + blockStartOffset, txn.get(blockIndexEntry.getChunkName()));
+                    val mappedChunk = index.floorEntry(blockStartOffset);
+                    Assert.assertNotNull(mappedChunk);
+                    Assert.assertEquals("for offset:" + blockStartOffset, mappedChunk.getValue(), blockIndexEntry.getChunkName());
+                }
+            }
+        }
     }
 
     /**
