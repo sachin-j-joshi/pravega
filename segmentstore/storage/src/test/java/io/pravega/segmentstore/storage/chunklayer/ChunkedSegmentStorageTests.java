@@ -101,9 +101,7 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
     }
 
     /**
-     * Test capabilities.
-     *
-     * @throws Exception
+     * Test {@link ChunkedSegmentStorage#supportsTruncation()}.
      */
     @Test
     public void testSupportsTruncate() throws Exception {
@@ -114,6 +112,20 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         @Cleanup
         val chunkedSegmentStorage = new ChunkedSegmentStorage(42, chunkStorage, metadataStore, executorService(), ChunkedSegmentStorageConfig.DEFAULT_CONFIG);
         Assert.assertTrue(chunkedSegmentStorage.supportsTruncation());
+    }
+
+    /**
+     * Tests {@link ChunkedSegmentStorage#supportsAtomicWrites()}
+     */
+    @Test
+    public void testSupportsAtomicWrites() throws Exception {
+        @Cleanup
+        val chunkStorage = createChunkStorage();
+        @Cleanup
+        val metadataStore = createMetadataStore();
+        @Cleanup
+        val chunkedSegmentStorage = new ChunkedSegmentStorage(42, chunkStorage, metadataStore, executorService(), ChunkedSegmentStorageConfig.DEFAULT_CONFIG);
+        Assert.assertTrue(chunkedSegmentStorage.supportsAtomicWrites());
     }
 
     /**
