@@ -585,7 +585,9 @@ class SegmentAttributeBTreeIndex implements AttributeIndex, CacheManager.Client,
         Futures.completeAfter(
                 () -> this.storage.read(handle, pr.offset, buffer, 0, pr.length, timeout)
                         .thenApplyAsync(bytesRead -> {
-                            Preconditions.checkArgument(pr.length == bytesRead, "Unexpected number of bytes read.");
+                            Preconditions.checkArgument(pr.length == bytesRead,
+                                    String.format("Unexpected number of bytes read from segment %s at offset %d. Expected length: %d, Actual: %d",
+                                            handle.getSegmentName(), pr.offset, pr.length, bytesRead ));
                             storeInCache(pr.offset, buffer);
                             return new ByteArraySegment(buffer);
                         }, this.executor),
