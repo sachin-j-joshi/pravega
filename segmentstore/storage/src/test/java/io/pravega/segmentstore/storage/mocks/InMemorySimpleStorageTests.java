@@ -77,18 +77,15 @@ public class InMemorySimpleStorageTests extends SimpleStorageTests {
         }
 
         @Override
-        protected void checkData(byte[] expected, byte[] output, int expectedStartIndex, int outputStartIndex, int length) {
-            for (int i = 0; i < length; i++) {
-                Assert.assertEquals(expected[expectedStartIndex + i], output[outputStartIndex + i]);
-            }
-        }
-
-        @Override
         public void testReadHugeChunks() {
+            // Do not execute this test because it creates very large chunks (few multiples of Integer.MAX_VALUE).
+            // Allocating such huge byte arrays is not desirable with InMemoryChunkStorage.
         }
 
         @Override
         public void testConcatHugeChunks(){
+            // Do not execute this test because it creates very large chunks (few multiples of Integer.MAX_VALUE).
+            // Allocating such huge byte arrays is not desirable with InMemoryChunkStorage.
         }
 
         public class InMemorySimpleStorageTestContext extends ChunkedSegmentStorageTests.TestContext {
