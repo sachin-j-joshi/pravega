@@ -508,7 +508,7 @@ public class ChunkedSegmentStorage implements Storage {
                                     txn.update(metadata);
                                     chunksToDelete.add(name);
                                 })
-                                .thenRunAsync(() -> deleteBlockIndexEntries(txn, streamSegmentName, segmentMetadata.getStartOffset(), segmentMetadata.getLength()),
+                                .thenRunAsync(() -> deleteBlockIndexEntriesForChunk(txn, streamSegmentName, segmentMetadata.getStartOffset(), segmentMetadata.getLength()),
                                         executor)
                                 .thenRunAsync(() -> txn.delete(streamSegmentName), executor)
                                 .thenComposeAsync(v ->
@@ -701,7 +701,10 @@ public class ChunkedSegmentStorage implements Storage {
         }
     }
 
-    void deleteBlockIndexEntries(MetadataTransaction txn, String segmentName, long startOffset, long endOffset) {
+    /**
+     * Delete block index entries for given chunk.
+     */
+    void deleteBlockIndexEntriesForChunk(MetadataTransaction txn, String segmentName, long startOffset, long endOffset) {
         val firstBlock = startOffset / config.getIndexBlockSize();
         for (long offset = firstBlock * config.getIndexBlockSize(); offset < endOffset; offset += config.getIndexBlockSize()) {
             txn.delete(NameUtils.getSegmentReadIndexBlockName(segmentName, offset));
