@@ -29,6 +29,8 @@ import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+
+import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
 import static io.pravega.shared.MetricsTags.containerTag;
@@ -88,14 +90,17 @@ public final class SegmentStoreMetrics {
     /**
      * SegmentStore ThreadPool metrics.
      */
+    @Slf4j
     public final static class ThreadPool implements AutoCloseable {
         private final OpStatsLogger queueSize;
         private final OpStatsLogger activeThreads;
         private final ScheduledExecutorService executor;
+        private final ScheduledExecutorService storageExecutor;
         private final ScheduledFuture<?> reporter;
 
-        public ThreadPool(ScheduledExecutorService executor) {
-            this.executor = Preconditions.checkNotNull(executor, "executor");
+        public ThreadPool(ScheduledExecutorService executor, ScheduledExecutorService storageExecutor) {
+            this.executor = Preconditions.checkNotNull(executor, "storageExecutor");
+            this.storageExecutor = Preconditions.checkNotNull(storageExecutor, "executor");
             this.queueSize = STATS_LOGGER.createStats(MetricsNames.THREAD_POOL_QUEUE_SIZE);
             this.activeThreads = STATS_LOGGER.createStats(MetricsNames.THREAD_POOL_ACTIVE_THREADS);
             this.reporter = executor.scheduleWithFixedDelay(this::report, 1000, 1000, TimeUnit.MILLISECONDS);
@@ -114,6 +119,8 @@ public final class SegmentStoreMetrics {
                 this.queueSize.reportSuccessValue(s.getQueueSize());
                 this.activeThreads.reportSuccessValue(s.getActiveThreadCount());
             }
+
+            log.info("Storage thread pool info:{} .", this.storageExecutor);
         }
     }
 
