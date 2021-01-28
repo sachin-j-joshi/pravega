@@ -47,6 +47,7 @@ import java.io.InputStream;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * {@link ChunkStorage} for extended S3 based storage.
@@ -66,6 +67,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
     @Getter
     @Setter
     private boolean supportsAppend;
+    private final AtomicBoolean closed;
 
     //endregion
 
@@ -75,6 +77,7 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
         this.config = Preconditions.checkNotNull(config, "config");
         this.client = Preconditions.checkNotNull(client, "client");
         this.supportsAppend = true;
+        this.closed = new AtomicBoolean(false);
     }
     //endregion
 
@@ -319,6 +322,17 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
             client.deleteObject(config.getBucket(), getObjectPath(handle.getChunkName()));
         } catch (Exception e) {
             throw convertException(handle.getChunkName(), "doDelete", e);
+        }
+    }
+
+    @Override
+    public void close() {
+        if (!this.closed.getAndSet(true)) {
+            try {
+                this.client.destroy();
+            } catch (Exception e) {
+                log.warn("Could not destroy the S3Client.", e);
+            }
         }
     }
 
