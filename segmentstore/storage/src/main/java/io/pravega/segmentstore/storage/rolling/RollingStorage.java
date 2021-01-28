@@ -337,6 +337,7 @@ public class RollingStorage implements SyncStorage {
             // Use a BoundedInputStream to ensure that the underlying storage does not try to read more (or less) data
             // than we instructed it to. Invoking BoundedInputStream.close() will throw an IOException if baseStorage.write()
             // has not read all the bytes it was supposed to.
+            Preconditions.checkState(!data.markSupported(), "markSupported is true for %s", data);
             try (BoundedInputStream bis = new BoundedInputStream(data, writeLength)) {
                 this.baseStorage.write(h.getActiveChunkHandle(), chunkOffset, bis, writeLength);
             }

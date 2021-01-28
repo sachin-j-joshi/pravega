@@ -382,7 +382,9 @@ class WriteOperation implements Callable<CompletableFuture<Void>> {
                                                     int bytesCount) {
         Preconditions.checkState(0 != bytesCount, "Attempt to write zero bytes");
         // Finally write the data.
+        Preconditions.checkState(!data.markSupported(), "markSupported is true for %s", data);
         val bis = new BoundedInputStream(data, bytesCount);
+        Preconditions.checkState(!bis.markSupported(), "markSupported is true for %s", bis);
         CompletableFuture<Integer> retValue;
         if (chunkedSegmentStorage.shouldAppend()) {
             retValue = chunkedSegmentStorage.getChunkStorage().write(chunkHandle, offsetToWriteAt, bytesCount, bis);
