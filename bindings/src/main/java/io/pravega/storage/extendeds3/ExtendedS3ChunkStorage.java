@@ -67,17 +67,23 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
     @Getter
     @Setter
     private boolean supportsAppend;
+    private final boolean shouldClose;
     private final AtomicBoolean closed;
 
     //endregion
 
     //region constructor
     public ExtendedS3ChunkStorage(S3Client client, ExtendedS3StorageConfig config, Executor executor) {
+        this(client, config, executor, false);
+    }
+
+    ExtendedS3ChunkStorage(S3Client client, ExtendedS3StorageConfig config, Executor executor, boolean shouldClose) {
         super(executor);
         this.config = Preconditions.checkNotNull(config, "config");
         this.client = Preconditions.checkNotNull(client, "client");
         this.supportsAppend = true;
         this.closed = new AtomicBoolean(false);
+        this.shouldClose = shouldClose;
     }
     //endregion
 
@@ -329,7 +335,9 @@ public class ExtendedS3ChunkStorage extends BaseChunkStorage {
     public void close() {
         if (!this.closed.getAndSet(true)) {
             try {
-                this.client.destroy();
+                if (shouldClose) {
+                    this.client.destroy();
+                }
             } catch (Exception e) {
                 log.warn("Could not destroy the S3Client.", e);
             }
