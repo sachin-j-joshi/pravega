@@ -333,7 +333,7 @@ class WriteOperation implements Callable<CompletableFuture<Void>> {
             segmentMetadata.setOwnershipChanged(false);
             log.debug("{} write - First write after failover - op={}, segment={}.", chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), segmentMetadata.getName());
         }
-        segmentMetadata.setChunkCount(segmentMetadata.getChunkCount() + 1);
+        segmentMetadata.incrementChunkCount();
 
         // Update the transaction.
         txn.create(newChunkMetadata);

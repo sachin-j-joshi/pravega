@@ -226,6 +226,22 @@ public class SegmentMetadata extends StorageMetadata {
     }
 
     /**
+     * Increment chunk count.
+     */
+    public void incrementChunkCount() {
+        setChunkCount(getChunkCount() + 1);
+        Preconditions.checkState(chunkCount >= 0, "chunkCount should be non-negative.");
+    }
+
+    /**
+     * Decrement chunk count.
+     */
+    public void decrementChunkCount() {
+        setChunkCount(getChunkCount() - 1);
+        Preconditions.checkState(chunkCount >= 0, "chunkCount should be non-negative.");
+    }
+
+    /**
      * Sets the given bit for given mask.
      */
     private SegmentMetadata setFlag(int mask, boolean value) {
