@@ -119,7 +119,15 @@ public final class MetricsNames {
     public static final String SLTS_DELETE_LATENCY = PREFIX + "segmentstore.storage.slts.delete_latency_ms";        // Histogram
     public static final String SLTS_CONCAT_LATENCY = PREFIX + "segmentstore.storage.slts.concat_latency_ms";        // Histogram
     public static final String SLTS_TRUNCATE_LATENCY = PREFIX + "segmentstore.storage.slts.truncate_latency_ms";    // Histogram
-    public static final String SLTS_READ_INDEX_SCAN_LATENCY = PREFIX + "segmentstore.storage.slts.read_index_scan_latency_ms"; // Histogram
+
+    public static final String SLTS_READ_INDEX_SCAN_LATENCY = PREFIX + "segmentstore.storage.slts.read_index.scan_latency_ms";              // Histogram
+    public static final String SLTS_READ_INDEX_NUM_SCANNED = PREFIX + "segmentstore.storage.slts.read_index.num_scanned";                   // Histogram
+    public static final String SLTS_SYS_READ_INDEX_SCAN_LATENCY = PREFIX + "segmentstore.storage.slts.read_index.system_scan_latency_ms";   // Histogram
+    public static final String SLTS_SYS_READ_INDEX_NUM_SCANNED = PREFIX + "segmentstore.storage.slts.read_index.system_num_scanned";        // Histogram
+
+    public static final String SLTS_READ_INDEX_SEGMENT_INDEX_SIZE = PREFIX + "segmentstore.storage.slts.read_index.segment_index_size";     // Gauge
+    public static final String SLTS_READ_INDEX_CHUNK_INDEX_SIZE = PREFIX + "segmentstore.storage.slts.read_index.chunks_index_size";        // Gauge
+    public static final String SLTS_READ_INDEX_SEGMENT_MISS_RATE = PREFIX + "segmentstore.storage.slts.read_index.segment_miss_rate";       // Gauge
 
     public static final String SLTS_READ_BYTES = PREFIX + "segmentstore.storage.slts.read_bytes";          // Counter
     public static final String SLTS_WRITE_BYTES = PREFIX + "segmentstore.storage.slts.write_bytes";        // Counter
@@ -134,6 +142,16 @@ public final class MetricsNames {
     public static final String STORAGE_METADATA_COMMIT_LATENCY = PREFIX + "segmentstore.storage.metadata_commit_latency_ms";            // Histogram
     public static final String STORAGE_METADATA_TABLE_GET_LATENCY = PREFIX + "segmentstore.storage.metadata_table_get_latency_ms";      // Histogram
     public static final String STORAGE_METADATA_TABLE_WRITE_LATENCY = PREFIX + "segmentstore.storage.metadata_table_write_latency_ms";  // Histogram
+
+    public static final String STORAGE_METADATA_FOUND_IN_TXN = PREFIX + "segmentstore.storage.metadata_found_in_txn";       // Counter
+    public static final String STORAGE_METADATA_FOUND_IN_BUFFER = PREFIX + "segmentstore.storage.metadata_found_in_buffer"; // Counter
+    public static final String STORAGE_METADATA_FOUND_IN_CACHE = PREFIX + "segmentstore.storage.metadata_found_in_cache";   // Counter
+    public static final String STORAGE_METADATA_FOUND_IN_STORE = PREFIX + "segmentstore.storage.metadata_found_in_store";   // Counter
+    public static final String STORAGE_METADATA_NOT_FOUND = PREFIX + "segmentstore.storage.metadata_not_found";             // Counter
+
+    public static final String STORAGE_METADATA_BUFFER_SIZE = PREFIX + "segmentstore.storage.metadata_buffer_size";         // Gauge
+    public static final String STORAGE_METADATA_CACHE_SIZE = PREFIX + "segmentstore.storage.metadata_cache_size";           // Gauge
+    public static final String STORAGE_METADATA_CACHE_MISS_RATE = PREFIX + "segmentstore.storage.metadata_cache_miss_rate"; // Gauge
 
     // Cache stats
     public static final String CACHE_WRITE_BYTES = PREFIX + "segmentstore.cache.write_bytes";                                     // Counter
@@ -195,6 +213,8 @@ public final class MetricsNames {
     // Thread pool metrics
     public static final String THREAD_POOL_QUEUE_SIZE = PREFIX + "segmentstore.thread_pool.queue_size";          // Histogram
     public static final String THREAD_POOL_ACTIVE_THREADS = PREFIX + "segmentstore.thread_pool.active_threads";  // Histogram
+    public static final String STORAGE_THREAD_POOL_QUEUE_SIZE = PREFIX + "segmentstore.storage_thread_pool.queue_size";          // Histogram
+    public static final String STORAGE_THREAD_POOL_ACTIVE_THREADS = PREFIX + "segmentstore.storage_thread_pool.active_threads";  // Histogram
 
     // Metrics in Controller
     // KeyValueTable create request counts
