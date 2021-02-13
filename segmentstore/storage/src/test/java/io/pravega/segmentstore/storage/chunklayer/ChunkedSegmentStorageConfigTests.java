@@ -40,6 +40,7 @@ public class ChunkedSegmentStorageConfigTests {
         props.setProperty(ChunkedSegmentStorageConfig.GARBAGE_COLLECTION_MAX_ATTEMPTS.getFullName(ChunkedSegmentStorageConfig.COMPONENT_CODE), "13");
         props.setProperty(ChunkedSegmentStorageConfig.READ_INDEX_BLOCK_SIZE.getFullName(ChunkedSegmentStorageConfig.COMPONENT_CODE), "14");
 
+
         TypedProperties typedProperties = new TypedProperties(props, "storage");
         ChunkedSegmentStorageConfig config = new ChunkedSegmentStorageConfig(typedProperties);
         Assert.assertFalse(config.isAppendEnabled());
