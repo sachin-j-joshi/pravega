@@ -29,7 +29,6 @@ import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-
 import lombok.val;
 
 import static io.pravega.shared.MetricsTags.containerTag;
@@ -113,6 +112,7 @@ public final class SegmentStoreMetrics {
             this.reporter.cancel(true);
             this.queueSize.close();
             this.activeThreads.close();
+            this.storageQueueSize.close();
             this.storageActiveThreads.close();
         }
 
