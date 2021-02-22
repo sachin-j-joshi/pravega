@@ -48,6 +48,7 @@ import java.util.stream.Collectors;
 
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.COMMIT_LATENCY;
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.GET_LATENCY;
+import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.METADATA_BUFFER_EVICTED_COUNT;
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.METADATA_FOUND_IN_BUFFER;
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.METADATA_FOUND_IN_CACHE;
 import static io.pravega.segmentstore.storage.metadata.StorageMetadataMetrics.METADATA_FOUND_IN_TXN;
@@ -188,6 +189,7 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
     /**
      * Keep count of records in buffer. ConcurrentHashMap.size() is an expensive operation.
      */
+    @Getter
     private final AtomicInteger bufferCount = new AtomicInteger(0);
 
     /**
@@ -297,7 +299,6 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
                 .thenRunAsync(() -> {
                     //  Step 5 : Mark transaction as commited.
                     txn.setCommitted();
-                    txnData.clear();
                 }, executor)
                 .whenCompleteAsync((v, ex) -> {
                     if (shouldReleaseKeys.get()) {
@@ -306,6 +307,9 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
                     }
                     // Remove keys from active set.
                     txn.getData().keySet().forEach(this::removeFromActiveKeySet);
+                    if (txn.isCommitted()) {
+                        txnData.clear();
+                    }
                     COMMIT_LATENCY.reportSuccessEvent(t.getElapsed());
                 }, executor);
 
@@ -493,6 +497,7 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
                     }
                 }
                 bufferCount.addAndGet(-1 * count);
+                METADATA_BUFFER_EVICTED_COUNT.add(count);
                 log.debug("{} entries evicted from transaction buffer.", count);
             }
             isEvictionRunning.set(false);
