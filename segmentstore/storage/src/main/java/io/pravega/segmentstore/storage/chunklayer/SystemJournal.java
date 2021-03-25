@@ -130,6 +130,9 @@ public class SystemJournal {
     @GuardedBy("lock")
     private SystemSnapshotRecord lastSavedSystemSnapshot;
 
+    @GuardedBy("lock")
+    private boolean shouldUpdateCheckpoint;
+
     /**
      * The current attempt for writing system snapshot.
      */
@@ -261,7 +264,8 @@ public class SystemJournal {
             val visitedRecords = new HashSet<SystemJournalRecord>();
 
             // Step 1: Create metadata records for system segments from latest snapshot.
-            val latestSnapshot = applyLatestSnapshot(txn, chunkStartOffsets);
+            val latestSnapshot = findLatestSnapshot();
+            applySystemSnapshotRecord(txn, chunkStartOffsets, latestSnapshot);
 
             // Step 2: For each epoch, find the corresponding system journal files, process them and apply operations recorded.
             applySystemLogOperations(txn, latestSnapshot, chunkStartOffsets, finalTruncateOffsets, finalFirstChunkStartsAtOffsets, visitedRecords);
@@ -373,10 +377,17 @@ public class SystemJournal {
 
     public void addCheckpointIfRequired() {
         synchronized (lock) {
-            long checkpointId = currentTimeSupplier.get() / config.getJournalSnapshotCheckpointFrequency().toMillis();
-            if (lastSavedSystemSnapshot != null
-               && (lastSavedCheckpoint == null || lastSavedCheckpoint.checkpointId < checkpointId )) {
-                writeCheckpointRecord(getSnapshotCheckpointNamePrefix(checkpointId), checkpointId);
+            try {
+                long checkpointId = currentTimeSupplier.get() / config.getJournalSnapshotCheckpointFrequency().toMillis();
+                if (lastSavedSystemSnapshot != null
+                        && (lastSavedCheckpoint == null || lastSavedCheckpoint.checkpointId < checkpointId)) {
+                    writeCheckpointRecord(getSnapshotCheckpointNamePrefix(checkpointId), checkpointId);
+                }
+                if (shouldUpdateCheckpoint) {
+                    updateCheckpointRecord(containerId, epoch);
+                }
+            } catch (Exception e) {
+
             }
         }
     }
@@ -413,6 +424,7 @@ public class SystemJournal {
 
                     lastSavedCheckpoint = checkpointRecord;
                     attempt = 0;
+                    shouldUpdateCheckpoint = true;
                     done = true;
                 } catch (Exception e) {
                     attempt++;
@@ -422,14 +434,56 @@ public class SystemJournal {
         }
     }
 
+    private void updateCheckpointRecord(long containerId, long epoch) throws Exception {
+        synchronized (lock) {
+            val snapshotCheckpointName = String.format("_system/containers/_sysjournal.epoch%d.container%d.LAST_CHECKPOINT", epoch, containerId);
+            ByteArraySegment bytes = null;
+            try {
+                bytes = SYSTEM_CHECKPOINT_SERIALIZER.serialize(lastSavedCheckpoint);
+            } catch (IOException e) {
+                log.warn(snapshotCheckpointName, "Unable to persist snapshot checkpointRecord.", e);
+                throw e;
+            }
+            for (int i = 0; i < config.getMaxJournalWriteAttempts(); i++) {
+                try {
+                    try {
+                        chunkStorage.delete(ChunkHandle.writeHandle(snapshotCheckpointName)).get();
+                    } catch (Exception e) {
+                        val ex = Exceptions.unwrap(e);
+                        if (!(ex instanceof ChunkNotFoundException)) {
+                            throw e;
+                        }
+                    }
+
+                    chunkStorage.createWithContent(snapshotCheckpointName,
+                            bytes.getLength(),
+                            new ByteArrayInputStream(bytes.array(), bytes.arrayOffset(), bytes.getLength())).get();
+
+                    // Read back written contents.
+                    byte[] contents = getContents(snapshotCheckpointName);
+                    val checkPointRead = SYSTEM_CHECKPOINT_SERIALIZER.deserialize(contents);
+
+                    // Validate
+                    Preconditions.checkState(lastSavedCheckpoint.checkpointId == checkPointRead.checkpointId);
+                    Preconditions.checkState(lastSavedCheckpoint.snapshotFileName.equals(checkPointRead.snapshotFileName));
+                    shouldUpdateCheckpoint = false;
+                    return;
+                } catch (Exception e) {
+                    log.warn(snapshotCheckpointName, "Unable to persist snapshot checkpointRecord.", e);
+                }
+            }
+        }
+    }
+
+
     /**
      * Find and apply latest snapshot.
      */
-    private SystemSnapshotRecord applyLatestSnapshot(MetadataTransaction txn, HashMap<String, Long> chunkStartOffsets) throws Exception {
+    private SystemSnapshotRecord findLatestSnapshot() throws Exception {
         long epochToCheck = 0;
         SystemJournalCheckpointRecord firstCheckpointRecord = null;
         SystemSnapshotRecord firstSystemSnapshot = null;
-        SystemJournalCheckpointRecord checkpointRecord = null;
+
         SystemSnapshotRecord systemSnapshot = null;
 
         // Find the first valid checkpoint of the latest epoch.
@@ -467,17 +521,41 @@ public class SystemJournal {
         long lastCheckpointId = currentTimeSupplier.get() / duration;
         log.debug("SystemJournal[{}] lastCheckpointId = {}.", containerId, lastCheckpointId);
 
-        // Find latest checkpoint in epoch.
+        if (null != firstSystemSnapshot) {
+            val lastCheckpointName = String.format("_system/containers/_sysjournal.epoch%d.container%d.LAST_CHECKPOINT", firstSystemSnapshot.epoch, containerId);
+            if (chunkStorage.exists(lastCheckpointName).get()) {
+                try {
+                    // Read contents.
+                    byte[] contents = getContents(lastCheckpointName);
+                    SystemJournalCheckpointRecord checkpointRecord = SYSTEM_CHECKPOINT_SERIALIZER.deserialize(contents);
+                    // Read the snapshot
+                    try {
+                        // Read contents.
+                        byte[] snapshotContents = getContents(checkpointRecord.snapshotFileName);
+                        systemSnapshot = SYSTEM_SNAPSHOT_SERIALIZER.deserialize(snapshotContents);
+                        log.debug("SystemJournal[{}] snapshot found and parsed.", containerId, checkpointRecord.snapshotFileName);
+                    } catch (Exception e) {
+                        handleException(e, "snapshot", checkpointRecord.snapshotFileName);
+                    }
+                } catch (Exception e) {
+                    handleException(e, "checkpoint", lastCheckpointName);
+                }
+            } else {
+                log.debug("SystemJournal[{}] Did not find checkpoint {}.", containerId, lastCheckpointName);
+            }
+        }
+
+        // Find latest checkpoint in epoch scanning future.
         LOOP2:
-        if (null != firstCheckpointRecord && epochToCheck >= 0) {
-            for (long checkpointId = lastCheckpointId; checkpointId >= firstCheckpointRecord.getCheckpointId(); checkpointId--) {
+        if (null == systemSnapshot && null != firstCheckpointRecord && epochToCheck >= 0) {
+            for (long checkpointId = lastCheckpointId; ; checkpointId++) {
                 for (int attempt = 0; attempt < config.getMaxJournalReadAttempts(); attempt++) {
                     val checkpointName = getSnapshotCheckpointName(epochToCheck, checkpointId, attempt);
                     if (chunkStorage.exists(checkpointName).get()) {
                         try {
                             // Read contents.
                             byte[] contents = getContents(checkpointName);
-                            checkpointRecord = SYSTEM_CHECKPOINT_SERIALIZER.deserialize(contents);
+                            val checkpointRecord = SYSTEM_CHECKPOINT_SERIALIZER.deserialize(contents);
                             // Read the snapshot
                             try {
                                 // Read contents.
@@ -494,16 +572,50 @@ public class SystemJournal {
                         }
                     } else {
                         log.debug("SystemJournal[{}] Did not find checkpoint {}.", containerId, checkpointName);
+                        break LOOP2;
+                    }
+                }
+            }
+        }
+
+        // Find latest checkpoint in epoch scanning past.
+        LOOP3:
+        if (null == systemSnapshot && null != firstCheckpointRecord && epochToCheck >= 0) {
+            for (long checkpointId = lastCheckpointId - 1; checkpointId >= firstCheckpointRecord.getCheckpointId(); checkpointId--) {
+                for (int attempt = 0; attempt < config.getMaxJournalReadAttempts(); attempt++) {
+                    val checkpointName = getSnapshotCheckpointName(epochToCheck, checkpointId, attempt);
+                    if (chunkStorage.exists(checkpointName).get()) {
+                        try {
+                            // Read contents.
+                            byte[] contents = getContents(checkpointName);
+                            val checkpointRecord = SYSTEM_CHECKPOINT_SERIALIZER.deserialize(contents);
+                            // Read the snapshot
+                            try {
+                                // Read contents.
+                                byte[] snapshotContents = getContents(checkpointRecord.snapshotFileName);
+                                systemSnapshot = SYSTEM_SNAPSHOT_SERIALIZER.deserialize(snapshotContents);
+                                log.debug("SystemJournal[{}] snapshot found and parsed.", containerId, checkpointRecord.snapshotFileName);
+                                break LOOP3;
+                            } catch (Exception e) {
+                                handleException(e, "snapshot", firstCheckpointRecord.snapshotFileName);
+                            }
+                        } catch (Exception e) {
+                            handleException(e, "checkpoint", checkpointName);
+                            break;
+                        }
+                    } else {
+                        log.debug("SystemJournal[{}] Did not find checkpoint {}.", containerId, checkpointName);
                         break;
                     }
                 }
             }
         }
+
         if (null == systemSnapshot) {
             systemSnapshot = firstSystemSnapshot;
         }
         log.debug("SystemJournal[{}] Done finding snapshots.", containerId);
-        return applySystemSnapshotRecord(txn, chunkStartOffsets, systemSnapshot);
+        return systemSnapshot;
     }
 
     private SystemSnapshotRecord applySystemSnapshotRecord(MetadataTransaction txn, HashMap<String, Long> chunkStartOffsets, SystemSnapshotRecord systemSnapshot) throws Exception {
