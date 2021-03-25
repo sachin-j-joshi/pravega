@@ -64,7 +64,7 @@ public class SystemJournalOperationsTests extends ThreadPooledTestSuite {
     }
 
     protected ChunkMetadataStore createMetadataStore() {
-        return new InMemoryMetadataStore(executorService());
+        return new InMemoryMetadataStore(ChunkedSegmentStorageConfig.DEFAULT_CONFIG, executorService());
     }
 
     protected ChunkStorage createChunkStorage() throws Exception {
