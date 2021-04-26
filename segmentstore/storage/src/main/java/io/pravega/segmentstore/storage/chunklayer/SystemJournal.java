@@ -462,7 +462,6 @@ public class SystemJournal {
                     containerId, currentTimeSupplier.get(), lastSavedSnapshotTime.get());
         } else {
             shouldGenerate = false;
-            log.trace("SystemJournal[{}] Snapshot up to date", containerId);
         }
         if (shouldGenerate) {
             // Write a snapshot.
@@ -500,7 +499,6 @@ public class SystemJournal {
                         lastSavedSystemSnapshotId.get(), lastSavedSnapshotInfo.get().getSnapshotId());
             } else {
                 shouldSave = false;
-                log.trace("SystemJournal[{}] Snapshot info is up to date", containerId);
             }
             if (shouldSave) {
                 return writeSnapshotInfo(lastSavedSystemSnapshotId.get());
