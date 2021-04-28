@@ -40,6 +40,7 @@ public class ChunkedSegmentStorageConfig {
     public static final Property<Integer> MAX_INDEXED_CHUNKS_PER_SEGMENTS = Property.named("readindex.chunksPerSegment.max", 1024);
     public static final Property<Integer> MAX_INDEXED_CHUNKS = Property.named("readindex.chunks.max", 16 * 1024);
     public static final Property<Long> READ_INDEX_BLOCK_SIZE = Property.named("readindex.block.size", 1024 * 1024L);
+    public static final Property<Integer> READ_BLOCK_SIZE = Property.named("read.block.size", 16 * 1024);
     public static final Property<Boolean> APPENDS_ENABLED = Property.named("appends.enable", true);
     public static final Property<Boolean> LAZY_COMMIT_ENABLED = Property.named("commit.lazy.enable", true);
     public static final Property<Boolean> INLINE_DEFRAG_ENABLED = Property.named("defrag.inline.enable", true);
@@ -87,6 +88,7 @@ public class ChunkedSegmentStorageConfig {
             .maxJournalReadAttempts(100)
             .maxJournalWriteAttempts(10)
             .selfCheckEnabled(false)
+            .readBlockSize(16 * 1024)
             .build();
 
     static final String COMPONENT_CODE = "storage";
@@ -140,6 +142,13 @@ public class ChunkedSegmentStorageConfig {
      */
     @Getter
     final private long indexBlockSize;
+
+
+    /**
+     * The fixed block size used for reading in parallel.
+     */
+    @Getter
+    final private int readBlockSize;
 
     /**
      * Whether the append functionality is enabled or disabled.
@@ -271,6 +280,7 @@ public class ChunkedSegmentStorageConfig {
         this.indexBlockSize = properties.getLong(READ_INDEX_BLOCK_SIZE);
         this.maxEntriesInTxnBuffer = properties.getInt(MAX_METADATA_ENTRIES_IN_BUFFER);
         this.maxEntriesInCache = properties.getInt(MAX_METADATA_ENTRIES_IN_CACHE);
+        this.readBlockSize = properties.getInt(READ_BLOCK_SIZE);
     }
 
     /**

@@ -126,6 +126,7 @@ public class NonAppendExtendedS3IntegrationTest extends BookKeeperIntegrationTes
         private final ChunkedSegmentStorageConfig chunkedSegmentStorageConfig = ChunkedSegmentStorageConfig.DEFAULT_CONFIG.toBuilder()
                 .journalSnapshotInfoUpdateFrequency(Duration.ofMillis(10))
                 .maxJournalUpdatesPerSnapshot(5)
+                .readBlockSize(10)
                 .appendEnabled(false)
                 .selfCheckEnabled(true)
                 .build();

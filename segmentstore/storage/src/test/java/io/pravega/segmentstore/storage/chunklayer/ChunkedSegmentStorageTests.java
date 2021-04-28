@@ -703,8 +703,16 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
     @Test
     public void testRead() throws Exception {
         String testSegmentName = "foo";
-        @Cleanup
-        TestContext testContext = getTestContext();
+        for (int i = 2; i < 15; i++) {
+            @Cleanup
+            TestContext testContext = getTestContext(ChunkedSegmentStorageConfig.DEFAULT_CONFIG.toBuilder()
+                    .readBlockSize(i)
+                    .build());
+            testRead(testSegmentName, testContext);
+        }
+    }
+
+    private void testRead(String testSegmentName, TestContext testContext) throws Exception {
         // Setup a segment with 5 chunks with given lengths.
         val segment = testContext.insertMetadata(testSegmentName, 1024, 1,
                 new long[]{1, 2, 3, 4, 5});

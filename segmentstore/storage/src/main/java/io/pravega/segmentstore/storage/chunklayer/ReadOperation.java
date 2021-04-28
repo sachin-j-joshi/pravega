@@ -200,6 +200,47 @@ class ReadOperation implements Callable<CompletableFuture<Integer>> {
     }
 
     private CompletableFuture<Void> readChunk(String chunkName,
+                                              long fromOffset,
+                                              int bytesToRead,
+                                              int bufferOffset) {
+        val futures = new ArrayList<CompletableFuture<Void>>();
+        int offset = 0;
+        int remaining = bytesToRead;
+        int readBlockSize = chunkedSegmentStorage.getConfig().getReadBlockSize();
+        int prefix = Math.toIntExact(fromOffset % readBlockSize);
+        // Read first part before alignment
+        if (prefix != 0 ) {
+            val toRead = Math.min(remaining, readBlockSize - prefix);
+            Preconditions.checkState(toRead > 0, "toRead (%s) must be positive", toRead);
+            Preconditions.checkState(toRead <= length && toRead > 0, "toRead (%s) must be less than length (%s)", toRead, length);
+            Preconditions.checkState(toRead <= readBlockSize, "toRead (%s) must be less than or equal to ReadBlockSize (%s)", toRead, readBlockSize);
+
+            val f = readChunkPart(chunkName, fromOffset, toRead, bufferOffset);
+            futures.add(f);
+            remaining -= toRead;
+            offset += toRead;
+        }
+
+        while (remaining > 0) {
+            Preconditions.checkState(offset >= 0, "offset (%s) must not be negative", offset);
+            Preconditions.checkState(offset < length, "offset (%s) must be less than length (%s)", offset, length);
+            Preconditions.checkState(bufferOffset + offset < buffer.length, "bufferOffset(%s) + offset (%s) must be less than length (%s)",
+                    bufferOffset, offset, buffer.length);
+
+            int toRead = Math.min(remaining, readBlockSize);
+            Preconditions.checkState(toRead > 0, "toRead (%s) must be positive", toRead);
+            Preconditions.checkState(toRead <= length && toRead > 0, "toRead (%s) must be less than length (%s)", toRead, length);
+            Preconditions.checkState(toRead <= readBlockSize, "toRead (%s) must be less than or equal to ReadBlockSize (%s)", toRead, readBlockSize);
+
+            val f = readChunkPart(chunkName, fromOffset + offset, toRead, bufferOffset + offset);
+            futures.add(f);
+            remaining -= toRead;
+            offset += toRead;
+        }
+        return Futures.allOf(futures);
+    }
+
+    private CompletableFuture<Void> readChunkPart(String chunkName,
                          long fromOffset,
                          int bytesToRead,
                          int bufferOffset) {
