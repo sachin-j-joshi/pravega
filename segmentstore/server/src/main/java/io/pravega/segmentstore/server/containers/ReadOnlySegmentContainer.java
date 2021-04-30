@@ -39,6 +39,7 @@ import io.pravega.segmentstore.storage.ReadOnlyStorage;
 import io.pravega.segmentstore.storage.StorageFactory;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -46,6 +47,9 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
+import java.util.function.Function;
+
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -214,6 +218,11 @@ class ReadOnlySegmentContainer extends AbstractIdleService implements SegmentCon
     @Override
     public CompletableFuture<DirectSegmentAccess> forSegment(String streamSegmentName, @Nullable OperationPriority priority, Duration timeout) {
         return unsupported("forSegment");
+    }
+
+    @Override
+    public EventProcessor forConsumer(@NonNull String name, @NonNull Function<List<BufferView>, CompletableFuture<Void>> handler, @NonNull EventProcessorConfig config) {
+        throw new UnsupportedOperationException("forConsumer is not supported on " + getClass().getSimpleName());
     }
 
     private <T> CompletableFuture<T> unsupported(String methodName) {
