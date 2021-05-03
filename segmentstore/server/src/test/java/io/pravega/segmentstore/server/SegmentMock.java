@@ -79,6 +79,8 @@ public class SegmentMock implements DirectSegmentAccess {
 
     /**
      * Gets the number of attributes that match the given filter.
+     *
+     * @param tester Filter function applied to count Attributes.
      */
     public synchronized int getAttributeCount(BiPredicate<UUID, Long> tester) {
         return (int) this.metadata.getAttributes().entrySet().stream().filter(e -> tester.test(e.getKey(), e.getValue())).count();
