@@ -2030,6 +2030,12 @@ public class StreamSegmentContainerTests extends ThreadPooledTestSuite {
         container.stopAsync().awaitTerminated();
     }
 
+    /**
+     * Test that the {@link ContainerEventProcessor} service is started as part of the {@link StreamSegmentContainer}
+     * and that it can process events.
+     *
+     * @throws Exception
+     */
     @Test
     public void testContainerEventProcessor() throws Exception {
         @Cleanup
