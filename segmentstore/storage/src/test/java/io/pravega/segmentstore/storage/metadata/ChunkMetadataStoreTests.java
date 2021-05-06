@@ -1323,7 +1323,7 @@ public class ChunkMetadataStoreTests extends ThreadPooledTestSuite {
             assertNull(txn.get(KEY0));
             txn.create(new MockStorageMetadata(KEY0, VALUE0));
             Assert.assertNotNull(txn.get(KEY0));
-            txn.commit();
+            txn.commit().join();
         }
 
         try (MetadataTransaction txn = metadataStore.beginTransaction(true, KEY0, KEY1)) {
@@ -1356,7 +1356,7 @@ public class ChunkMetadataStoreTests extends ThreadPooledTestSuite {
             assertNull(txn.get(KEY0));
             txn.create(new MockStorageMetadata(KEY0, VALUE0));
             Assert.assertNotNull(txn.get(KEY0));
-            txn.commit();
+            txn.commit().join();
             AssertExtensions.assertThrows("commit should throw an exception",
                     () -> txn.commit(),
                     ex -> ex instanceof IllegalStateException);

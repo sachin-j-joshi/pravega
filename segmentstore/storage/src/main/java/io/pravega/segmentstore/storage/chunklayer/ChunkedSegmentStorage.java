@@ -20,6 +20,7 @@ import com.google.common.base.Preconditions;
 import io.pravega.common.Exceptions;
 import io.pravega.common.LoggerHelpers;
 import io.pravega.common.Timer;
+import io.pravega.common.concurrent.ExecutorServiceHelpers;
 import io.pravega.common.concurrent.MultiKeySequentialProcessor;
 import io.pravega.common.util.ImmutableDate;
 import io.pravega.segmentstore.contracts.SegmentProperties;
@@ -102,7 +103,7 @@ public class ChunkedSegmentStorage implements Storage, StatsReporter {
      * Storage executor object.
      */
     @Getter
-    private final Executor executor;
+    private final ScheduledExecutorService executor;
 
     /**
      * Tracks whether this instance is closed or not.
@@ -168,7 +169,8 @@ public class ChunkedSegmentStorage implements Storage, StatsReporter {
         this.config = Preconditions.checkNotNull(config, "config");
         this.chunkStorage = Preconditions.checkNotNull(chunkStorage, "chunkStorage");
         this.metadataStore = Preconditions.checkNotNull(metadataStore, "metadataStore");
-        this.executor = Preconditions.checkNotNull(executor, "executor");
+        //this.executor = Preconditions.checkNotNull(executor, "executor");
+        this.executor = ExecutorServiceHelpers.newScheduledThreadPool(2, "storage-scheduler" + containerId);
         this.readIndexCache = new ReadIndexCache(config.getMaxIndexedSegments(),
                 config.getMaxIndexedChunks());
         this.taskProcessor = new MultiKeySequentialProcessor<>(this.executor);
@@ -176,15 +178,15 @@ public class ChunkedSegmentStorage implements Storage, StatsReporter {
                 chunkStorage,
                 metadataStore,
                 config,
-                executor);
+                this.executor);
         this.systemJournal = new SystemJournal(containerId,
                 chunkStorage,
                 metadataStore,
                 garbageCollector,
                 config,
-                executor);
+                this.executor);
         this.closed = new AtomicBoolean(false);
-        this.reporter = executor.scheduleAtFixedRate(this::report, 1000, 1000, TimeUnit.MILLISECONDS);
+        this.reporter = this.executor.scheduleAtFixedRate(this::report, 1000, 1000, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -680,6 +682,7 @@ public class ChunkedSegmentStorage implements Storage, StatsReporter {
         close("garbageCollector", this.garbageCollector);
         close("chunkStorage", this.chunkStorage);
         this.reporter.cancel(true);
+        this.executor.shutdownNow();
         this.closed.set(true);
     }
 

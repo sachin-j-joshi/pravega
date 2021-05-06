@@ -24,6 +24,7 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ConcurrentHashMultiset;
 import io.pravega.common.ObjectBuilder;
 import io.pravega.common.Timer;
+import io.pravega.common.concurrent.ExecutorServiceHelpers;
 import io.pravega.common.concurrent.Futures;
 import io.pravega.common.io.serialization.RevisionDataInput;
 import io.pravega.common.io.serialization.RevisionDataOutput;
@@ -50,6 +51,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -169,7 +171,7 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
      * Storage executor object.
      */
     @Getter(AccessLevel.PROTECTED)
-    private final Executor executor;
+    private final ScheduledExecutorService executor;
 
     /**
      * Maximum number of metadata entries to keep in recent transaction buffer.
@@ -214,7 +216,8 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
      */
     public BaseMetadataStore(ChunkedSegmentStorageConfig config, Executor executor) {
         this.config = Preconditions.checkNotNull(config, "config");
-        this.executor = Preconditions.checkNotNull(executor, "executor");
+        //this.executor = Preconditions.checkNotNull(executor, "executor");
+        this.executor = ExecutorServiceHelpers.newScheduledThreadPool(2, "storage-metadata");
         version = new AtomicLong(System.currentTimeMillis()); // Start with unique number.
         fenced = new AtomicBoolean(false);
         bufferedTxnData = new ConcurrentHashMap<>(); // Don't think we need anything fancy here. But we'll measure and see.
@@ -535,7 +538,10 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
                 if (0 == activeKeys.count(key)) {
                     // Synchronization prevents error when key becomes active between the check and remove.
                     // Move the key to cache
-                    cache.put(key, bufferedTxnData.get(key));
+                    val value = bufferedTxnData.get(key);
+                    if (null != value) {
+                        cache.put(key, value);
+                    }
                     // Remove from buffer.
                     bufferedTxnData.remove(key);
                     count++;
@@ -869,6 +875,7 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
         if (modifiedValues.size() > 0) {
             writeAll(modifiedValues);
         }
+        this.executor.shutdownNow();
     }
 
     /**
