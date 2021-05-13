@@ -427,11 +427,6 @@ public class StreamSegmentContainerRegistryTests extends ThreadPooledTestSuite {
             return null;
         }
 
-        @Override
-        public EventProcessor forConsumer(@NonNull String name, @NonNull Function<List<BufferView>, CompletableFuture<Void>> handler, @NonNull EventProcessorConfig config) {
-            return null;
-        }
-
         //endregion
     }
 

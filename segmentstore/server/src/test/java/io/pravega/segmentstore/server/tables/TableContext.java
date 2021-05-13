@@ -313,11 +313,6 @@ public class TableContext implements AutoCloseable {
             throw new UnsupportedOperationException("Not Expected");
         }
 
-        @Override
-        public EventProcessor forConsumer(@NonNull String name, @NonNull Function<List<BufferView>, CompletableFuture<Void>> handler, @NonNull EventProcessorConfig config) {
-            throw new UnsupportedOperationException("Not Expected");
-        }
-
         //endregion
     }
 }
