@@ -40,7 +40,6 @@ import io.pravega.segmentstore.storage.cache.DirectMemoryCache;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
@@ -51,10 +50,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import java.util.function.Supplier;
-
-import lombok.NonNull;
 import lombok.val;
 import org.junit.Assert;
 

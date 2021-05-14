@@ -39,7 +39,6 @@ import io.pravega.segmentstore.storage.ReadOnlyStorage;
 import io.pravega.segmentstore.storage.StorageFactory;
 import java.time.Duration;
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
