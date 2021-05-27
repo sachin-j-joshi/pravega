@@ -94,6 +94,11 @@ public interface ChunkMetadataStore extends AutoCloseable, StatsReporter {
      */
     MetadataTransaction beginTransaction(boolean isReadonly, String... keysToLock);
 
+    void closeTransaction(MetadataTransaction txn);
+
+
+    boolean isTransactionActive(long txnId);
+
     /**
      * Retrieves the metadata for given key.
      *

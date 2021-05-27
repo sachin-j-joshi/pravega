@@ -225,7 +225,7 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
             ChunkedSegmentStorage chunkedStorage = (ChunkedSegmentStorage) this.storage;
             val snapshotInfoStore = getStorageSnapshotInfoStore();
             // Bootstrap
-            return chunkedStorage.bootstrap(snapshotInfoStore);
+            return chunkedStorage.bootstrap(snapshotInfoStore, null);
         }
         return CompletableFuture.completedFuture(null);
     }
