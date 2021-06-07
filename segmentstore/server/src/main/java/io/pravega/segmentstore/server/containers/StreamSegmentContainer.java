@@ -77,6 +77,7 @@ import io.pravega.segmentstore.storage.StorageFactory;
 import io.pravega.segmentstore.storage.chunklayer.ChunkedSegmentStorage;
 import io.pravega.segmentstore.storage.chunklayer.SnapshotInfo;
 import io.pravega.segmentstore.storage.chunklayer.SnapshotInfoStore;
+import io.pravega.segmentstore.storage.metadata.TableBasedTaskQueue;
 import io.pravega.segmentstore.storage.metadata.TableBasedMetadataStore;
 import io.pravega.shared.NameUtils;
 import java.time.Duration;
@@ -225,7 +226,8 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
             ChunkedSegmentStorage chunkedStorage = (ChunkedSegmentStorage) this.storage;
             val snapshotInfoStore = getStorageSnapshotInfoStore();
             // Bootstrap
-            return chunkedStorage.bootstrap(snapshotInfoStore, null);
+            TableBasedTaskQueue eventProcessor = new TableBasedTaskQueue(this.metadata.getContainerId(), chunkedStorage);
+            return chunkedStorage.bootstrap(snapshotInfoStore, eventProcessor);
         }
         return CompletableFuture.completedFuture(null);
     }
@@ -300,7 +302,14 @@ class StreamSegmentContainer extends AbstractService implements SegmentContainer
         }
 
         // Delayed start. Secondary services need not be started in order for us to accept requests.
-        delayedStart.thenComposeAsync(v -> startSecondaryServicesAsync(), this.executor)
+        delayedStart
+                .thenComposeAsync( v -> {
+                    if (this.storage instanceof ChunkedSegmentStorage) {
+                        return ((ChunkedSegmentStorage) this.storage).finishBootstrap();
+                    }
+                    return CompletableFuture.completedFuture(null);
+                }, this.executor)
+                .thenComposeAsync(v -> startSecondaryServicesAsync(), this.executor)
                 .whenComplete((v, ex) -> {
                     if (ex == null) {
                         // Successful start.

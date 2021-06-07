@@ -62,7 +62,9 @@ public abstract class StorageMetadata implements Serializable {
             builder.serializer(MockStorageMetadata.class, 1, new MockStorageMetadata.Serializer())
                     .serializer(ChunkMetadata.class, 2, new ChunkMetadata.Serializer())
                     .serializer(SegmentMetadata.class, 3, new SegmentMetadata.Serializer())
-                    .serializer(ReadIndexBlockMetadata.class, 4, new ReadIndexBlockMetadata.Serializer());
+                    .serializer(ReadIndexBlockMetadata.class, 4, new ReadIndexBlockMetadata.Serializer())
+                    .serializer(TableBasedTaskQueue.TableBasedQueueInfo.class, 5, new TableBasedTaskQueue.TableBasedQueueInfo.Serializer())
+                    .serializer(TableBasedTaskQueue.TableBasedTaskInfo.class, 6, new TableBasedTaskQueue.TableBasedTaskInfo.Serializer());
         }
     }
 }

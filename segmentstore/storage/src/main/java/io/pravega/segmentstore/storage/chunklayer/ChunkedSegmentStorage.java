@@ -154,6 +154,8 @@ public class ChunkedSegmentStorage implements Storage, StatsReporter {
 
     private final ScheduledFuture<?> reporter;
 
+    private AbstractTaskQueue<GarbageCollector.TaskInfo> taskQueue;
+
     /**
      * Creates a new instance of the ChunkedSegmentStorage class.
      *
@@ -199,10 +201,13 @@ public class ChunkedSegmentStorage implements Storage, StatsReporter {
     public CompletableFuture<Void> bootstrap(SnapshotInfoStore snapshotInfoStore, AbstractTaskQueue<GarbageCollector.TaskInfo> taskQueue) {
 
         this.logPrefix = String.format("ChunkedSegmentStorage[%d]", containerId);
-
+        this.taskQueue = taskQueue;
         // Now bootstrap
-        return this.systemJournal.bootstrap(epoch, snapshotInfoStore)
-                .thenRun(() -> garbageCollector.initialize(taskQueue));
+        return this.systemJournal.bootstrap(epoch, snapshotInfoStore);
+    }
+
+    public CompletableFuture<Void> finishBootstrap() {
+        return garbageCollector.initialize(taskQueue);
     }
 
     @Override
