@@ -43,6 +43,7 @@ import java.io.ByteArrayInputStream;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -1116,11 +1117,11 @@ public class GarbageCollectorTests extends ThreadPooledTestSuite {
     }
 
     private void assertQueueEquals(String queueName, InMemoryTaskQueue garbageCollector, String[] expected) {
-        val queue = Arrays.stream(garbageCollector.getTaskQueueMap().get(queueName).toArray(new Object[expected.length]))
-                .map(info -> ((GarbageCollector.TaskInfo) info).getName()).collect(Collectors.toSet());
-        Assert.assertEquals(expected.length, queue.size());
+        HashSet<String> visited = new HashSet<>();
+        val queue = garbageCollector.getTaskQueueMap().get(queueName).stream().peek(info -> visited.add(info.getName())).collect(Collectors.counting());
+        Assert.assertEquals(expected.length, visited.size());
         for (String chunk : expected) {
-            Assert.assertTrue(queue.contains(chunk));
+            Assert.assertTrue(visited.contains(chunk));
         }
     }
 

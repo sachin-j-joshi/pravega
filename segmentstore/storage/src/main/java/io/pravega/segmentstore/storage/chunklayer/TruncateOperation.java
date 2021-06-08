@@ -116,7 +116,6 @@ class TruncateOperation implements Callable<CompletableFuture<Void>> {
     private void postCommit() {
         // Update the read index by removing all entries below truncate offset.
         chunkedSegmentStorage.getReadIndexCache().truncateReadIndex(handle.getSegmentName(), segmentMetadata.getStartOffset());
-
         logEnd();
     }
 

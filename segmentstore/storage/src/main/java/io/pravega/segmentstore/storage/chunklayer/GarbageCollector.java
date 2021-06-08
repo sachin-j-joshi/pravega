@@ -140,19 +140,15 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                             ScheduledExecutorService storageExecutor,
                             Supplier<Long> currentTimeSupplier,
                             Function<Duration, CompletableFuture<Void>> delaySupplier) {
-        try {
-            this.chunkStorage = Preconditions.checkNotNull(chunkStorage, "chunkStorage");
-            this.metadataStore = Preconditions.checkNotNull(metadataStore, "metadataStore");
-            this.config = Preconditions.checkNotNull(config, "config");
-            this.currentTimeSupplier = Preconditions.checkNotNull(currentTimeSupplier, "currentTimeSupplier");
-            this.delaySupplier = Preconditions.checkNotNull(delaySupplier, "delaySupplier");
-            this.storageExecutor = Preconditions.checkNotNull(storageExecutor, "storageExecutor");
-            this.traceObjectId = String.format("GarbageCollector[%d]", containerId);
-            this.taskQueueName = String.format("GC.queue.%d", containerId);
-            this.failedQueueName = String.format("GC.failed.queue.%d", containerId);
-        } catch (Exception ex) {
-            throw ex;
-        }
+        this.chunkStorage = Preconditions.checkNotNull(chunkStorage, "chunkStorage");
+        this.metadataStore = Preconditions.checkNotNull(metadataStore, "metadataStore");
+        this.config = Preconditions.checkNotNull(config, "config");
+        this.currentTimeSupplier = Preconditions.checkNotNull(currentTimeSupplier, "currentTimeSupplier");
+        this.delaySupplier = Preconditions.checkNotNull(delaySupplier, "delaySupplier");
+        this.storageExecutor = Preconditions.checkNotNull(storageExecutor, "storageExecutor");
+        this.traceObjectId = String.format("GarbageCollector[%d]", containerId);
+        this.taskQueueName = String.format("GC.queue.%d", containerId);
+        this.failedQueueName = String.format("GC.failed.queue.%d", containerId);
     }
 
     /**
@@ -160,8 +156,7 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
      * @param taskQueue Task queue to use.
      */
     public CompletableFuture<Void> initialize(AbstractTaskQueue<TaskInfo> taskQueue) {
-        //taskQueue = Preconditions.checkNotNull(taskQueue, "taskQueue");
-        this.taskQueue = taskQueue;
+        this.taskQueue = Preconditions.checkNotNull(taskQueue, "taskQueue");
         if (null != taskQueue) {
             return taskQueue.addQueue(this.taskQueueName).thenComposeAsync( v -> taskQueue.addQueue(this.failedQueueName), storageExecutor);
         } else {
@@ -242,10 +237,10 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                     val segmentMetadata = (SegmentMetadata) storageMetadata;
                     AtomicBoolean failed = new AtomicBoolean();
                     if (null == segmentMetadata) {
-                        log.info("{}: deleteGarbage - Segment metadata does not exist. segment={}.", traceObjectId, streamSegmentName);
+                        log.debug("{}: deleteGarbage - Segment metadata does not exist. segment={}.", traceObjectId, streamSegmentName);
                         return CompletableFuture.completedFuture(null);
                     } else if (segmentMetadata.isActive()) {
-                        log.info("{}: deleteGarbage - Segment is not marked as deleted. segment={}.", traceObjectId, streamSegmentName);
+                        log.debug("{}: deleteGarbage - Segment is not marked as deleted. segment={}.", traceObjectId, streamSegmentName);
                         return CompletableFuture.completedFuture(null);
                     } else {
                         return new ChunkIterator(storageExecutor, txn, segmentMetadata)
@@ -265,7 +260,6 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                                         log.error(String.format("%s deleteGarbage - Could not delete metadata for garbage segment=%s.",
                                                 traceObjectId, streamSegmentName), e);
                                         failed.set(true);
-
                                     }
                                     return null;
                                 })
