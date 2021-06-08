@@ -422,9 +422,9 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
     }
 
     /**
-     *
+     * Represents a Task info.
      */
-    static abstract class AbstractTaskInfo {
+    public static abstract class AbstractTaskInfo {
         public static final int DELETE_CHUNK = 1;
         public static final int DELETE_SEGMENT = 2;
         public static final int DELETE_JOURNAL = 3;
