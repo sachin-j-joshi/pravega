@@ -30,7 +30,7 @@ public class InMemoryTaskQueue implements AbstractTaskQueue<GarbageCollector.Tas
     private final ConcurrentHashMap<String, LinkedBlockingQueue<GarbageCollector.TaskInfo>> taskQueueMap = new ConcurrentHashMap<>();
 
     @Override
-    public CompletableFuture<Void> addQueue(String queueName) {
+    public CompletableFuture<Void> addQueue(String queueName, Boolean ignoreProcessing) {
         taskQueueMap.put(queueName, new LinkedBlockingQueue<GarbageCollector.TaskInfo>());
         return CompletableFuture.completedFuture(null);
     }

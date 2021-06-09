@@ -201,6 +201,36 @@ public class GarbageCollectorTests extends ThreadPooledTestSuite {
                 ex -> ex instanceof NullPointerException);
     }
 
+    @Test
+    public void testInitializationWithNullQueue() throws Exception {
+        @Cleanup
+        ChunkStorage chunkStorage = getChunkStorage();
+        @Cleanup
+        ChunkMetadataStore metadataStore = getMetadataStore();
+        int containerId = CONTAINER_ID;
+
+        @Cleanup
+        GarbageCollector garbageCollector = new GarbageCollector(containerId,
+                chunkStorage,
+                metadataStore,
+                ChunkedSegmentStorageConfig.DEFAULT_CONFIG,
+                executorService(),
+                System::currentTimeMillis,
+                d -> CompletableFuture.completedFuture(null));
+
+        Assert.assertNull(garbageCollector.getTaskQueue());
+
+        // Should not throw an exception.
+        garbageCollector.addChunkToGarbage(1, "chunk3", 10, 0);
+        garbageCollector.addChunksToGarbage(1, Collections.singleton("chunk1"));
+        garbageCollector.trackNewChunk(1, "chunk2");
+        garbageCollector.addSegmentToGarbage(1, "segment");
+        garbageCollector.addSegmentToGarbage(GarbageCollector.TaskInfo.builder()
+                .scheduledDeleteTime(11)
+                .name("segment2")
+                .attempts(0).build());
+    }
+
     /**
      * Test for chunk that is marked active but added as garbage.
      */
@@ -1114,6 +1144,42 @@ public class GarbageCollectorTests extends ThreadPooledTestSuite {
         Assert.assertEquals(0, garbageCollector.getQueueSize().get());
 
         Assert.assertNotNull(getSegmentMetadata(metadataStore, "testSegment"));
+    }
+
+    @Test
+    public void testSerialization() throws Exception {
+        val serializer = new GarbageCollector.TaskInfo.Serializer();
+        GarbageCollector.TaskInfo obj1 = GarbageCollector.TaskInfo.builder()
+                .transactionId(1)
+                .taskType(2)
+                .attempts(3)
+                .name("name")
+                .build();
+        val bytes = serializer.serialize(obj1);
+        val obj2 = serializer.deserialize(bytes);
+
+        Assert.assertEquals(1, obj2.getTransactionId());
+        Assert.assertEquals(2, obj2.getTaskType());
+        Assert.assertEquals(3, obj2.getAttempts());
+        Assert.assertEquals("name", obj2.getName());
+    }
+
+    @Test
+    public void testSerializationWithBaseClass() throws Exception {
+        val serializer = new GarbageCollector.AbstractTaskInfo.AbstractTaskInfoSerializer();
+        GarbageCollector.TaskInfo obj1 = GarbageCollector.TaskInfo.builder()
+                .transactionId(1)
+                .taskType(2)
+                .attempts(3)
+                .name("name")
+                .build();
+        val bytes = serializer.serialize(obj1);
+        val obj2 = (GarbageCollector.TaskInfo) serializer.deserialize(bytes);
+
+        Assert.assertEquals(1, obj2.getTransactionId());
+        Assert.assertEquals(2, obj2.getTaskType());
+        Assert.assertEquals(3, obj2.getAttempts());
+        Assert.assertEquals("name", obj2.getName());
     }
 
     private void assertQueueEquals(String queueName, InMemoryTaskQueue garbageCollector, String[] expected) {
