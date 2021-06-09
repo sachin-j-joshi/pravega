@@ -19,6 +19,7 @@ import com.google.common.base.Preconditions;
 import io.pravega.common.Exceptions;
 import io.pravega.common.ObjectBuilder;
 import io.pravega.common.concurrent.Futures;
+import io.pravega.common.concurrent.MultiKeySequentialProcessor;
 import io.pravega.common.io.serialization.RevisionDataInput;
 import io.pravega.common.io.serialization.RevisionDataOutput;
 import io.pravega.common.io.serialization.VersionedSerializer;
@@ -32,6 +33,7 @@ import lombok.Cleanup;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
@@ -39,8 +41,10 @@ import lombok.val;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -106,6 +110,11 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
     private final String failedQueueName;
 
     /**
+     * Instance of {@link MultiKeySequentialProcessor}.
+     */
+    private final MultiKeySequentialProcessor<String> taskSchedular;
+
+    /**
      * Constructs a new instance.
      *
      * @param containerId         Container id of the owner container.
@@ -149,6 +158,7 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
         this.traceObjectId = String.format("GarbageCollector[%d]", containerId);
         this.taskQueueName = String.format("GC.queue.%d", containerId);
         this.failedQueueName = String.format("GC.failed.queue.%d", containerId);
+        this.taskSchedular = new MultiKeySequentialProcessor<>(storageExecutor);
     }
 
     /**
@@ -157,11 +167,8 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
      */
     public CompletableFuture<Void> initialize(AbstractTaskQueue<TaskInfo> taskQueue) {
         this.taskQueue = Preconditions.checkNotNull(taskQueue, "taskQueue");
-        if (null != taskQueue) {
-            return taskQueue.addQueue(this.taskQueueName).thenComposeAsync( v -> taskQueue.addQueue(this.failedQueueName), storageExecutor);
-        } else {
-            return CompletableFuture.completedFuture(null);
-        }
+        return taskQueue.addQueue(this.taskQueueName, false)
+                .thenComposeAsync(v -> taskQueue.addQueue(this.failedQueueName, true), storageExecutor);
     }
 
     /**
@@ -301,16 +308,37 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                 if (null != f) {
                     val now = currentTimeSupplier.get();
                     if (infoToDelete.scheduledDeleteTime > currentTimeSupplier.get()) {
-                        futures.add(delaySupplier.apply(Duration.ofMillis(infoToDelete.scheduledDeleteTime - now))
-                                .thenComposeAsync(v -> f, storageExecutor));
+                        futures.add(executeSerialized( () -> delaySupplier.apply(Duration.ofMillis(infoToDelete.scheduledDeleteTime - now))
+                                .thenComposeAsync(v -> f, storageExecutor), infoToDelete.name));
                     } else {
-                        futures.add(f);
+                        futures.add(executeSerialized(() -> f, infoToDelete.name));
                     }
                 }
             }
         }
         return Futures.allOf(futures)
                 .thenRunAsync(() -> queueSize.addAndGet(-1 * batch.size()), storageExecutor);
+    }
+
+    /**
+     * Executes the given Callable asynchronously and returns a CompletableFuture that will be completed with the result.
+     * The operations are serialized on the segmentNames provided.
+     *
+     * @param operation    The Callable to execute.
+     * @param <R>       Return type of the operation.
+     * @param segmentNames The names of the Segments involved in this operation (for sequencing purposes).
+     * @return A CompletableFuture that, when completed, will contain the result of the operation.
+     * If the operation failed, it will contain the cause of the failure.
+     * */
+    private <R> CompletableFuture<R> executeSerialized(Callable<CompletableFuture<R>> operation, String... segmentNames) {
+        Exceptions.checkNotClosed(this.closed.get(), this);
+        return this.taskSchedular.add(Arrays.asList(segmentNames), () -> {
+            try {
+                return operation.call();
+            } catch (Exception e) {
+                return CompletableFuture.failedFuture(e);
+            }
+        });
     }
 
     private CompletableFuture<Void> processTask(TaskInfo infoToDelete) {
@@ -449,6 +477,7 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
     @Builder(toBuilder = true)
     @EqualsAndHashCode(callSuper = true)
     public static class TaskInfo extends AbstractTaskInfo {
+        @NonNull
         private final String name;
         private final long scheduledDeleteTime;
         private final int attempts;
@@ -497,5 +526,4 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
             }
         }
     }
-
 }

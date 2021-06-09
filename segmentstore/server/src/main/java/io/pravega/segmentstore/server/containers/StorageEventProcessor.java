@@ -54,11 +54,13 @@ public class StorageEventProcessor implements AbstractTaskQueue<GarbageCollector
      * Adds a queue by the given name.
      *
      * @param queueName Name of the queue.
+     * @param ignoreProcessing Whether the processing should be ignored.
      */
     @Override
-    public CompletableFuture<Void> addQueue(String queueName) {
-        val config = new ContainerEventProcessor.EventProcessorConfig(10, 1024 * 1024);
-        return eventProcessor.forConsumer(queueName, this::processEvents, config)
+    public CompletableFuture<Void> addQueue(String queueName, Boolean ignoreProcessing) {
+        val config = new ContainerEventProcessor.EventProcessorConfig(chunkedSegmentStorage.getConfig().getGarbageCollectionMaxConcurrency(),
+                Long.MAX_VALUE );
+        return eventProcessor.forConsumer(queueName, ignoreProcessing ? this::processEvents : this::ignoreProcessor, config)
                 .thenAccept( processor -> eventProcessorMap.put(queueName, processor));
     }
 
@@ -88,7 +90,7 @@ public class StorageEventProcessor implements AbstractTaskQueue<GarbageCollector
     }
 
     CompletableFuture<Void> processEvents(List<BufferView> events) {
-        log.info("{}: processor event called with {} events", traceObjectId, events.size());
+        log.info("{}: processEvents called with {} events", traceObjectId, events.size());
         ArrayList<GarbageCollector.TaskInfo> batch = new ArrayList<>();
         for (val event : events) {
             try {
@@ -98,5 +100,10 @@ public class StorageEventProcessor implements AbstractTaskQueue<GarbageCollector
             }
         }
         return chunkedSegmentStorage.getGarbageCollector().processBatch(batch);
+    }
+
+    CompletableFuture<Void> ignoreProcessor(List<BufferView> events) {
+        // This never completes. It is okay, that is what we want.
+        return new CompletableFuture<>();
     }
 }
