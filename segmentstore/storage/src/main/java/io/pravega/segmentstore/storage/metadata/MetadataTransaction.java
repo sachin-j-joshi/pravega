@@ -80,12 +80,6 @@ public class MetadataTransaction implements AutoCloseable {
     private boolean isCommitted = false;
 
     /**
-     * Indicates whether the transaction is committed lazily.
-     */
-    @Getter
-    private boolean isLazyCommitted = false;
-
-    /**
      * Indicates whether the transaction is aborted or not.
      */
     @Getter

@@ -2355,9 +2355,7 @@ public class ChunkedSegmentStorageTests extends ThreadPooledTestSuite {
         // Make sure to open segment with new instance before writing garbage to old instance.
         hWrite = newTestContext.chunkedSegmentStorage.openWrite(testSegmentName).get();
         newTestContext.chunkedSegmentStorage.truncate(hWrite, offset, null).get();
-        //newTestContext.chunkedSegmentStorage.getGarbageCollector().setSuspended(true);
-        //newTestContext.chunkedSegmentStorage.getGarbageCollector().runIteration(false, 100).get();
-        //checkDataRead(testSegmentName, testContext, offset, 0);
+
         TestUtils.checkSegmentBounds(newTestContext.metadataStore, testSegmentName, offset, offset);
         TestUtils.checkReadIndexEntries(newTestContext.chunkedSegmentStorage, newTestContext.metadataStore, testSegmentName, offset, offset, false);
 
