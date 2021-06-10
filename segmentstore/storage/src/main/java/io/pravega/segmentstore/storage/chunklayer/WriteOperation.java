@@ -131,7 +131,6 @@ class WriteOperation implements Callable<CompletableFuture<Void>> {
                                                                                                 postCommit(), chunkedSegmentStorage.getExecutor())
                                                                                         .exceptionally(this::handleException),
                                                                         chunkedSegmentStorage.getExecutor())
-                                                                .whenCompleteAsync((value, e) -> collectGarbage(), chunkedSegmentStorage.getExecutor())
                                                                 .thenRunAsync(this::logEnd, chunkedSegmentStorage.getExecutor()),
                                                 chunkedSegmentStorage.getExecutor());
                             }, chunkedSegmentStorage.getExecutor());
@@ -187,13 +186,6 @@ class WriteOperation implements Callable<CompletableFuture<Void>> {
                     chunkedSegmentStorage.getLogPrefix(), System.identityHashCode(this), handle.getSegmentName(), offset, length, elapsed.toMillis());
         }
         LoggerHelpers.traceLeave(log, "write", traceId, handle, offset);
-    }
-
-    private void collectGarbage() {
-        if (!isCommitted && chunksAddedCount.get() > 0) {
-            // Collect garbage.
-            //chunkedSegmentStorage.getGarbageCollector().addChunksToGarbage(newReadIndexEntries.stream().map(ChunkNameOffsetPair::getChunkName).collect(Collectors.toList()));
-        }
     }
 
     private CompletableFuture<Void> commit(MetadataTransaction txn) {

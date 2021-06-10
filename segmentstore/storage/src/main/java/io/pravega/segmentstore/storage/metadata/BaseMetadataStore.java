@@ -238,12 +238,15 @@ abstract public class BaseMetadataStore implements ChunkMetadataStore {
     @Override
     public MetadataTransaction beginTransaction(boolean isReadonly, String... keysToLock) {
         // Each transaction gets a unique number which is monotonically increasing.
-
         val txn = new MetadataTransaction(this, isReadonly, version.incrementAndGet(), keysToLock);
         activeTxns.put(txn.getVersion(), txn);
         return txn;
     }
 
+    /**
+     * Closes the transaction.
+     * @param txn transaction to close.
+     */
     @Override
     public void closeTransaction(MetadataTransaction txn) {
         activeTxns.remove(txn.getVersion());
