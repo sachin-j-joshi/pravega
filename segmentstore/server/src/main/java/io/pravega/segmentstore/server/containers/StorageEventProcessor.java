@@ -60,8 +60,10 @@ public class StorageEventProcessor implements AbstractTaskQueue<GarbageCollector
     public CompletableFuture<Void> addQueue(String queueName, Boolean ignoreProcessing) {
         val config = new ContainerEventProcessor.EventProcessorConfig(chunkedSegmentStorage.getConfig().getGarbageCollectionMaxConcurrency(),
                 Long.MAX_VALUE );
-        return eventProcessor.forConsumer(queueName, ignoreProcessing ? this::processEvents : this::ignoreProcessor, config)
-                .thenAccept( processor -> eventProcessorMap.put(queueName, processor));
+        val f =  ignoreProcessing ?
+                eventProcessor.forDurableQueue(queueName) :
+                eventProcessor.forConsumer(queueName,  this::processEvents, config);
+        return f.thenAccept( processor -> eventProcessorMap.put(queueName, processor));
     }
 
     /**
@@ -100,10 +102,5 @@ public class StorageEventProcessor implements AbstractTaskQueue<GarbageCollector
             }
         }
         return chunkedSegmentStorage.getGarbageCollector().processBatch(batch);
-    }
-
-    CompletableFuture<Void> ignoreProcessor(List<BufferView> events) {
-        // This never completes. It is okay, that is what we want.
-        return new CompletableFuture<>();
     }
 }
