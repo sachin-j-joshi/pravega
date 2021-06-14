@@ -46,6 +46,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -326,20 +327,39 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
      *
      * @param operation    The Callable to execute.
      * @param <R>       Return type of the operation.
-     * @param segmentNames The names of the Segments involved in this operation (for sequencing purposes).
+     * @param keyNames The names of the keys involved in this operation (for sequencing purposes).
      * @return A CompletableFuture that, when completed, will contain the result of the operation.
      * If the operation failed, it will contain the cause of the failure.
      * */
-    private <R> CompletableFuture<R> executeSerialized(Callable<CompletableFuture<R>> operation, String... segmentNames) {
+    private <R> CompletableFuture<R> executeSerialized(Callable<CompletableFuture<R>> operation, String... keyNames) {
         Exceptions.checkNotClosed(this.closed.get(), this);
-        return this.taskSchedular.add(Arrays.asList(segmentNames), () -> {
+        return this.taskSchedular.add(Arrays.asList(keyNames), () -> executeExclusive(operation, keyNames));
+    }
+
+    /**
+     * Executes the given Callable asynchronously and exclusively.
+     * It returns a CompletableFuture that will be completed with the result.
+     * The operations are not allowed to be concurrent.
+     *
+     * @param operation    The Callable to execute.
+     * @param <R>       Return type of the operation.
+     * @param keyNames The names of the keys involved in this operation (for sequencing purposes).
+     * @return A CompletableFuture that, when completed, will contain the result of the operation.
+     * If the operation failed, it will contain the cause of the failure.
+     * */
+    private <R> CompletableFuture<R> executeExclusive(Callable<CompletableFuture<R>> operation, String... keyNames) {
+        return CompletableFuture.completedFuture(null).thenComposeAsync(v -> {
+            Exceptions.checkNotClosed(this.closed.get(), this);
             try {
                 return operation.call();
+            } catch (CompletionException e) {
+                throw new CompletionException(Exceptions.unwrap(e));
             } catch (Exception e) {
-                return CompletableFuture.failedFuture(e);
+                throw new CompletionException(e);
             }
-        });
+        }, this.storageExecutor);
     }
+
 
     private CompletableFuture<Void> processTask(TaskInfo infoToDelete) {
         if (infoToDelete.taskType == TaskInfo.DELETE_CHUNK) {
