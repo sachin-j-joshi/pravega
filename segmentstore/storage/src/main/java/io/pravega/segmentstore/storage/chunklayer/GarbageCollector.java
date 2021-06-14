@@ -51,9 +51,20 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_CHUNK_DELETED;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_CHUNK_FAILED;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_CHUNK_NEW;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_CHUNK_QUEUED;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_CHUNK_RETRY;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_SEGMENT_FAILED;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_SEGMENT_PROCESSED;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_SEGMENT_QUEUED;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_SEGMENT_RETRY;
+import static io.pravega.segmentstore.storage.chunklayer.ChunkStorageMetrics.SLTS_GC_TASK_PROCESSED;
 import static io.pravega.shared.MetricsNames.SLTS_GC_QUEUE_SIZE;
 
 /**
@@ -197,7 +208,10 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
     CompletableFuture<Void>  addChunkToGarbage(long transactionId, String chunkToDelete, long startTime, int attempts) {
         if (null != taskQueue) {
             return taskQueue.addTask(taskQueueName, new TaskInfo(chunkToDelete, startTime, attempts, TaskInfo.DELETE_CHUNK, transactionId))
-                    .thenRun( () -> queueSize.incrementAndGet());
+                    .thenRunAsync(() -> {
+                        queueSize.incrementAndGet();
+                        SLTS_GC_CHUNK_QUEUED.inc();
+                    }, this.storageExecutor);
         }
         return CompletableFuture.completedFuture(null);
     }
@@ -206,7 +220,10 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
         if (null != taskQueue) {
             val startTime = currentTimeSupplier.get() + config.getGarbageCollectionDelay().toMillis();
             return taskQueue.addTask(taskQueueName, new TaskInfo(segmentToDelete, startTime, 0, TaskInfo.DELETE_SEGMENT, transactionId))
-                    .thenRun( () -> queueSize.incrementAndGet());
+                    .thenRunAsync(() -> {
+                        queueSize.incrementAndGet();
+                        SLTS_GC_SEGMENT_QUEUED.inc();
+                    }, this.storageExecutor);
         }
         return CompletableFuture.completedFuture(null);
     }
@@ -214,7 +231,10 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
     CompletableFuture<Void>  addSegmentToGarbage(TaskInfo taskInfo) {
         if (null != taskQueue) {
             return taskQueue.addTask(taskQueueName, taskInfo)
-                    .thenRun( () -> queueSize.incrementAndGet());
+                    .thenRunAsync(() -> {
+                        queueSize.incrementAndGet();
+                        SLTS_GC_SEGMENT_QUEUED.inc();
+                    }, this.storageExecutor);
         }
         return CompletableFuture.completedFuture(null);
     }
@@ -223,12 +243,15 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
         if (null != taskQueue) {
             val startTime = currentTimeSupplier.get() + config.getGarbageCollectionDelay().toMillis();
             return taskQueue.addTask(taskQueueName, new TaskInfo(chunktoTrack, startTime, 0, TaskInfo.DELETE_CHUNK, transactionId))
-                    .thenRun( () -> queueSize.incrementAndGet());
+                    .thenRunAsync(() -> {
+                        queueSize.incrementAndGet();
+                        SLTS_GC_CHUNK_NEW.inc();
+                    }, this.storageExecutor);
         }
         return CompletableFuture.completedFuture(null);
     }
 
-    private CompletableFuture<Void> retireTask(TaskInfo infoToRetire) {
+    private CompletableFuture<Void> failTask(TaskInfo infoToRetire) {
         if (null != taskQueue) {
             return taskQueue.addTask(failedQueueName, infoToRetire);
         }
@@ -243,7 +266,7 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
         return txn.get(streamSegmentName)
                 .thenComposeAsync(storageMetadata -> {
                     val segmentMetadata = (SegmentMetadata) storageMetadata;
-                    AtomicBoolean failed = new AtomicBoolean();
+                    val failed = new AtomicReference<Throwable>();
                     if (null == segmentMetadata) {
                         log.debug("{}: deleteGarbage - Segment metadata does not exist. segment={}.", traceObjectId, streamSegmentName);
                         return CompletableFuture.completedFuture(null);
@@ -267,20 +290,23 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                                     if (null != e) {
                                         log.error(String.format("%s deleteGarbage - Could not delete metadata for garbage segment=%s.",
                                                 traceObjectId, streamSegmentName), e);
-                                        failed.set(true);
+                                        failed.set(e);
                                     }
                                     return null;
-                                })
+                                }, storageExecutor)
                                 .thenComposeAsync(v -> {
-                                    if (failed.get()) {
+                                    if (failed.get() != null) {
                                         if (taskInfo.getAttempts() < config.getGarbageCollectionMaxAttempts()) {
                                             val attempts = taskInfo.attempts + 1;
+                                            SLTS_GC_SEGMENT_RETRY.inc();
                                             return addSegmentToGarbage(taskInfo.toBuilder().attempts(attempts).build());
                                         } else {
+                                            SLTS_GC_SEGMENT_FAILED.inc();
                                             log.info("{}: deleteGarbage - could not delete after max attempts segment={}.", traceObjectId, taskInfo.getName());
-                                            return retireTask(taskInfo);
+                                            return failTask(taskInfo);
                                         }
                                     } else {
+                                        SLTS_GC_SEGMENT_PROCESSED.inc();
                                         return CompletableFuture.completedFuture(null);
                                     }
                                 }, storageExecutor);
@@ -318,7 +344,10 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
             }
         }
         return Futures.allOf(futures)
-                .thenRunAsync(() -> queueSize.addAndGet(-1 * batch.size()), storageExecutor);
+                .thenRunAsync(() -> {
+                    queueSize.addAndGet(-1 * batch.size());
+                    SLTS_GC_TASK_PROCESSED.add(batch.size());
+                }, storageExecutor);
     }
 
     /**
@@ -375,7 +404,7 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
 
     private CompletableFuture<Void> deleteChunk(TaskInfo infoToDelete) {
         val chunkToDelete = infoToDelete.name;
-        val failed = new AtomicBoolean();
+        val failed = new AtomicReference<Throwable>();
         @Cleanup
         val txn = metadataStore.beginTransaction(false, chunkToDelete);
         return txn.get(infoToDelete.name)
@@ -397,9 +426,10 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                                         } else {
                                             log.warn("{}: deleteGarbage - Could not delete garbage chunk={}.", traceObjectId, chunkToDelete);
                                             shouldDeleteMetadata.set(false);
-                                            failed.set(true);
+                                            failed.set(e);
                                         }
                                     } else {
+                                        SLTS_GC_CHUNK_DELETED.inc();
                                         log.debug("{}: deleteGarbage - deleted chunk={}.", traceObjectId, chunkToDelete);
                                     }
                                     return v;
@@ -415,7 +445,7 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                                     if (e != null) {
                                         log.error(String.format("%s deleteGarbage - Could not delete metadata for garbage chunk=%s.",
                                                 traceObjectId, chunkToDelete), e);
-                                        failed.set(true);
+                                        failed.set(e);
                                     }
                                     return v;
                                 }, storageExecutor);
@@ -425,15 +455,17 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                     }
                 }, storageExecutor)
                 .thenComposeAsync( v -> {
-                    if (failed.get()) {
+                    if (failed.get() != null) {
                         if (infoToDelete.getAttempts() < config.getGarbageCollectionMaxAttempts()) {
                             log.debug("{}: deleteGarbage - adding back chunk={}.", traceObjectId, chunkToDelete);
+                            SLTS_GC_CHUNK_RETRY.inc();
                             return addChunkToGarbage(txn.getVersion(), chunkToDelete,
                                     infoToDelete.getScheduledDeleteTime() + config.getGarbageCollectionDelay().toMillis(),
                                     infoToDelete.getAttempts() + 1);
                         } else {
+                            SLTS_GC_CHUNK_FAILED.inc();
                             log.info("{}: deleteGarbage - could not delete after max attempts chunk={}.", traceObjectId, chunkToDelete);
-                            return retireTask(infoToDelete);
+                            return failTask(infoToDelete);
 
                         }
                     }
