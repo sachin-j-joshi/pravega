@@ -331,14 +331,14 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
                 log.debug("{}: deleteGarbage - transaction is still active - re-queuing {}.", traceObjectId, infoToDelete.transactionId);
                 taskQueue.addTask(taskQueueName, infoToDelete);
             } else {
-                val f = processTask(infoToDelete);
+                val f = executeSerialized(() -> processTask(infoToDelete), infoToDelete.name);
                 if (null != f) {
                     val now = currentTimeSupplier.get();
                     if (infoToDelete.scheduledDeleteTime > currentTimeSupplier.get()) {
-                        futures.add(executeSerialized( () -> delaySupplier.apply(Duration.ofMillis(infoToDelete.scheduledDeleteTime - now))
-                                .thenComposeAsync(v -> f, storageExecutor), infoToDelete.name));
+                        futures.add(delaySupplier.apply(Duration.ofMillis(infoToDelete.scheduledDeleteTime - now))
+                                .thenComposeAsync(v -> f, storageExecutor));
                     } else {
-                        futures.add(executeSerialized(() -> f, infoToDelete.name));
+                        futures.add(f);
                     }
                 }
             }
@@ -397,8 +397,9 @@ public class GarbageCollector implements AutoCloseable, StatsReporter {
         if (infoToDelete.taskType == TaskInfo.DELETE_SEGMENT) {
             return  deleteSegment(infoToDelete);
         }
-        //if (infoToDelete.taskType == TaskType.DELETE_JOURNAL) {
-        //}
+        if (infoToDelete.taskType == TaskInfo.DELETE_JOURNAL) {
+            return  CompletableFuture.completedFuture(null);
+        }
         return null;
     }
 
